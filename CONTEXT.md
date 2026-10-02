@@ -33,5 +33,5 @@ What a candidate's answer to a Question must cover at a given Seniority Level. A
 _Avoid_: Rubric, model answer
 
 **Question Count**:
-The number of questions asked in an Interview, from 3 to 10.
+The number of questions asked in an Interview, from 5 to 10.
 _Avoid_: Length, size
