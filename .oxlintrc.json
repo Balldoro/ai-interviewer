@@ -7,12 +7,26 @@
   },
   "rules": {
     "react/react-in-jsx-scope": "off",
-    "import/no-unassigned-import": ["warn", { "allow": ["**/*.css", "./env", "./load-env"] }]
+    "import/no-unassigned-import": [
+      "warn",
+      {
+        "allow": ["**/*.css", "./env", "./load-env", "@testing-library/jest-dom/vitest"]
+      }
+    ]
   },
   "env": {
     "builtin": true,
     "browser": true,
     "node": true
   },
-  "ignorePatterns": [".next/**", "out/**", "build/**", "next-env.d.ts"]
+  "ignorePatterns": [".next/**", "out/**", "build/**", "next-env.d.ts"],
+  "overrides": [
+    {
+      "files": ["components/ui/**"],
+      "rules": {
+        "jsx-a11y/label-has-associated-control": "off",
+        "jsx-a11y/prefer-tag-over-role": "off"
+      }
+    }
+  ]
 }

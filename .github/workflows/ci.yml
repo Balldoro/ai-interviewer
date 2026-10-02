@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   ci:
-    name: Lint, format, typecheck & build
+    name: Lint, format, typecheck, test & build
     runs-on: ubuntu-latest
     env:
       # env.ts validates this at build time; CI never connects to the database.
@@ -40,6 +40,9 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
 
       - name: Build
         run: pnpm build
