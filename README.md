@@ -53,6 +53,19 @@ Set these in the Vercel project:
 
 To run migrations against Supabase from your machine, use the **session** pooler string (port `5432`) with the same `DATABASE_CA_CERT`.
 
+## Sign-in
+
+Users sign in with GitHub or Google through Supabase Auth, locally too. Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` from Project Settings → API Keys in `.env.local` and in Vercel.
+
+In the Supabase dashboard:
+
+- Authentication → Sign In / Providers: enable GitHub and Google with each provider's OAuth client ID and secret. Both OAuth apps use `https://<project-ref>.supabase.co/auth/v1/callback` as their callback URL.
+- Authentication → URL Configuration: set the Site URL to production and add `http://localhost:3000/**` and `https://*-<vercel-team-slug>.vercel.app/**` to the redirect allow list. The wildcard covers every preview deployment; the app always asks to return to the URL the User started on.
+
+Server code gets the signed-in User through `getUserId()` (or `requireUserId()`, which sends a signed-out visitor to `/sign-in`) from `modules/auth/lib/user.ts`.
+
+Sign-in uses the hosted Supabase project even when the data is in Docker. Each sign-in adds the User to the `users` table, which other tables reference instead of `auth.users`.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
