@@ -5,49 +5,33 @@ import { useId } from 'react';
 
 import { RadioFieldSet } from '@/components/radio-field-set';
 import { Button } from '@/components/ui/button';
-import { Field, FieldError, FieldTitle } from '@/components/ui/field';
+import { Field, FieldTitle } from '@/components/ui/field';
 import { Slider } from '@/components/ui/slider/slider';
 import {
-  useInterviewSetupForm,
-  type SubmitInterviewSetup,
-} from '@/modules/setup/components/interview-setup-form/use-interview-setup-form';
-import {
   CATEGORIES,
+  CATEGORY_LABELS,
   INTERVIEW_SETUP_DEFAULTS,
   QUESTION_COUNT_MAX,
   QUESTION_COUNT_MIN,
+  SENIORITY_LEVEL_LABELS,
   SENIORITY_LEVELS,
-  type Category,
-  type SeniorityLevel,
-} from '@/modules/setup/lib/interview-setup';
+} from '../../lib/constants';
+import { useSetupForm, type SubmitSetupForm } from './use-setup-form';
 
-const SENIORITY_LEVEL_LABELS: Record<SeniorityLevel, string> = {
-  junior: 'Junior',
-  mid: 'Mid',
-  senior: 'Senior',
+type SetupFormProps = {
+  onSubmitAction: SubmitSetupForm;
 };
 
-const CATEGORY_LABELS: Record<Category, string> = {
-  javascript: 'JavaScript',
-  react: 'React',
-  typescript: 'TypeScript',
-  mixed: 'Mixed',
-};
-
-type InterviewSetupFormProps = {
-  onSubmitAction: SubmitInterviewSetup;
-};
-
-export function InterviewSetupForm({ onSubmitAction }: InterviewSetupFormProps) {
+export function SetupForm({ onSubmitAction }: SetupFormProps) {
   const id = useId();
 
-  const { questionCount, changeQuestionCount, errors, formAction, isPending } =
-    useInterviewSetupForm(onSubmitAction);
+  const { questionCount, changeQuestionCount, formAction, isPending } =
+    useSetupForm(onSubmitAction);
 
   const questionCountLabelId = `${id}-question-count`;
 
   return (
-    <form action={formAction} noValidate className="flex flex-col gap-6">
+    <form action={formAction} className="flex flex-col gap-6">
       <RadioFieldSet
         id={`${id}-seniority-level`}
         legend="Seniority Level"
@@ -55,7 +39,6 @@ export function InterviewSetupForm({ onSubmitAction }: InterviewSetupFormProps) 
         options={SENIORITY_LEVELS}
         labels={SENIORITY_LEVEL_LABELS}
         defaultValue={INTERVIEW_SETUP_DEFAULTS.seniorityLevel}
-        error={errors.seniorityLevel}
         className="grid-cols-1 sm:grid-cols-3"
       />
       <RadioFieldSet
@@ -65,13 +48,9 @@ export function InterviewSetupForm({ onSubmitAction }: InterviewSetupFormProps) 
         options={CATEGORIES}
         labels={CATEGORY_LABELS}
         defaultValue={INTERVIEW_SETUP_DEFAULTS.category}
-        error={errors.category}
         className="grid-cols-1 sm:grid-cols-2"
       />
-      <Field
-        aria-labelledby={questionCountLabelId}
-        data-invalid={errors.questionCount ? true : undefined}
-      >
+      <Field aria-labelledby={questionCountLabelId}>
         <div className="flex items-baseline justify-between gap-4">
           <FieldTitle id={questionCountLabelId}>Question Count</FieldTitle>
           <output aria-labelledby={questionCountLabelId} className="text-sm tabular-nums">
@@ -85,9 +64,7 @@ export function InterviewSetupForm({ onSubmitAction }: InterviewSetupFormProps) 
             max={QUESTION_COUNT_MAX}
             step={1}
             value={questionCount}
-            onValueChange={(value) =>
-              changeQuestionCount(typeof value === 'number' ? value : value[0])
-            }
+            onValueChange={changeQuestionCount}
             thumbLabel={questionCount}
             // Inset so the balloon stays clear of the form edge and the − button at either end. The bottom padding
             // centres the 0.375rem track on the 2.25rem −/+ buttons, as the slider is taller than them.
@@ -115,7 +92,6 @@ export function InterviewSetupForm({ onSubmitAction }: InterviewSetupFormProps) 
           </Button>
         </div>
         <input type="hidden" name="questionCount" value={questionCount} />
-        <FieldError>{errors.questionCount}</FieldError>
       </Field>
       <Button type="submit" size="lg" disabled={isPending} className="self-stretch sm:self-center">
         Start interview

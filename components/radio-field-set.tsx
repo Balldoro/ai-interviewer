@@ -1,4 +1,4 @@
-import { Field, FieldError, FieldLabel, FieldLegend, FieldSet } from '@/components/ui/field';
+import { Field, FieldLabel, FieldLegend, FieldSet } from '@/components/ui/field';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 type RadioFieldSetProps<Value extends string> = {
@@ -8,7 +8,6 @@ type RadioFieldSetProps<Value extends string> = {
   options: readonly Value[];
   labels: Record<Value, string>;
   defaultValue: Value;
-  error: string | undefined;
   className: string;
 };
 
@@ -19,11 +18,10 @@ export function RadioFieldSet<Value extends string>({
   options,
   labels,
   defaultValue,
-  error,
   className,
 }: RadioFieldSetProps<Value>) {
   return (
-    <FieldSet data-invalid={error ? true : undefined}>
+    <FieldSet>
       <FieldLegend id={id}>{legend}</FieldLegend>
       <RadioGroup
         aria-labelledby={id}
@@ -43,7 +41,6 @@ export function RadioFieldSet<Value extends string>({
           );
         })}
       </RadioGroup>
-      <FieldError>{error}</FieldError>
     </FieldSet>
   );
 }

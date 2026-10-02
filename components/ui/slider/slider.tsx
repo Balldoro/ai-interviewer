@@ -8,24 +8,18 @@ import { cn } from '@/lib/utils';
 
 function Slider({
   className,
-  defaultValue,
-  value,
   min = 0,
   max = 100,
   thumbLabel,
   onPointerDown,
   ...props
-}: SliderPrimitive.Root.Props & {
+}: SliderPrimitive.Root.Props<number> & {
   /**
-   * Shown in a balloon above the thumb that trails it as it moves. Meant for a single-thumb slider.
+   * Shown in a balloon above the thumb that trails it as it moves.
    */
   thumbLabel?: ReactNode;
 }) {
-  const { thumbCount, isPressed, handlePointerDown } = useSlider({
-    value,
-    defaultValue,
-    onPointerDown,
-  });
+  const { isPressed, handlePointerDown } = useSlider(onPointerDown);
 
   return (
     <SliderPrimitive.Root
@@ -41,8 +35,6 @@ function Slider({
       )}
       data-slot="slider"
       data-pressed={isPressed || undefined}
-      defaultValue={defaultValue}
-      value={value}
       min={min}
       max={max}
       onPointerDown={handlePointerDown}
@@ -58,21 +50,18 @@ function Slider({
             className="bg-primary transition-[width,height] duration-150 ease-out select-none data-horizontal:h-full data-vertical:w-full motion-reduce:transition-none"
           />
         </SliderPrimitive.Track>
-        {Array.from({ length: thumbCount }, (_, index) => (
-          <SliderPrimitive.Thumb
-            data-slot="slider-thumb"
-            key={index}
-            className={cn(
-              'relative block shrink-0 rounded-full ring-ring/50 transition-[color,box-shadow,left,right,bottom,width,height] duration-150 ease-out select-none motion-reduce:transition-none after:absolute after:-inset-2 hover:ring-3 focus-visible:ring-3 focus-visible:outline-hidden active:ring-3 disabled:pointer-events-none disabled:opacity-50',
-              thumbLabel === undefined
-                ? 'size-3 border border-ring bg-white'
-                : // With a balloon, the thumb is a ring the balloon rises from, swelling a little while held.
-                  'size-5 border-2 border-primary bg-background group-data-pressed/slider:size-6',
-            )}
-          >
-            {thumbLabel !== undefined && index === 0 && <SliderBalloon>{thumbLabel}</SliderBalloon>}
-          </SliderPrimitive.Thumb>
-        ))}
+        <SliderPrimitive.Thumb
+          data-slot="slider-thumb"
+          className={cn(
+            'relative block shrink-0 rounded-full ring-ring/50 transition-[color,box-shadow,left,right,bottom,width,height] duration-150 ease-out select-none motion-reduce:transition-none after:absolute after:-inset-2 hover:ring-3 focus-visible:ring-3 focus-visible:outline-hidden active:ring-3 disabled:pointer-events-none disabled:opacity-50',
+            thumbLabel === undefined
+              ? 'size-3 border border-ring bg-white'
+              : // With a balloon, the thumb is a ring the balloon rises from, swelling a little while held.
+                'size-5 border-2 border-primary bg-background group-data-pressed/slider:size-6',
+          )}
+        >
+          {thumbLabel !== undefined && <SliderBalloon>{thumbLabel}</SliderBalloon>}
+        </SliderPrimitive.Thumb>
       </SliderPrimitive.Control>
     </SliderPrimitive.Root>
   );

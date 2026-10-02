@@ -1,14 +1,20 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
-import { InterviewSetupForm } from '@/modules/setup/components/interview-setup-form/interview-setup-form';
+import { SetupForm } from './setup-form';
 
 function renderForm() {
   const onSubmitAction = vi.fn().mockResolvedValue(undefined);
   const user = userEvent.setup();
-  render(<InterviewSetupForm onSubmitAction={onSubmitAction} />);
+  render(<SetupForm onSubmitAction={onSubmitAction} />);
   return { onSubmitAction, user };
+}
+
+// The form hands its raw FormData to the action, which parses it on the server.
+async function expectSubmitted(onSubmitAction: Mock, fields: Record<string, string>) {
+  await waitFor(() => expect(onSubmitAction).toHaveBeenCalledOnce());
+  expect(Object.fromEntries(onSubmitAction.mock.calls[0][0])).toEqual(fields);
 }
 
 // Base UI hides the slider thumb until it has measured a non-zero layout, which jsdom never has.
@@ -25,7 +31,7 @@ function getThumbLabel() {
   return document.querySelector('[data-slot="slider-thumb-label"]');
 }
 
-describe('InterviewSetupForm', () => {
+describe('SetupForm', () => {
   it('offers Junior, Mid and Senior as a labelled Seniority Level group with Mid preselected', () => {
     renderForm();
 
@@ -43,13 +49,11 @@ describe('InterviewSetupForm', () => {
 
     await user.click(screen.getByRole('button', { name: 'Start interview' }));
 
-    await waitFor(() =>
-      expect(onSubmitAction).toHaveBeenCalledExactlyOnceWith({
-        seniorityLevel: 'mid',
-        category: 'mixed',
-        questionCount: 5,
-      }),
-    );
+    await expectSubmitted(onSubmitAction, {
+      seniorityLevel: 'mid',
+      category: 'mixed',
+      questionCount: '5',
+    });
   });
 
   it('submits the chosen Seniority Level', async () => {
@@ -60,13 +64,11 @@ describe('InterviewSetupForm', () => {
 
     expect(screen.getByRole('radio', { name: 'Senior' })).toBeChecked();
     expect(screen.getByRole('radio', { name: 'Mid' })).not.toBeChecked();
-    await waitFor(() =>
-      expect(onSubmitAction).toHaveBeenCalledExactlyOnceWith({
-        seniorityLevel: 'senior',
-        category: 'mixed',
-        questionCount: 5,
-      }),
-    );
+    await expectSubmitted(onSubmitAction, {
+      seniorityLevel: 'senior',
+      category: 'mixed',
+      questionCount: '5',
+    });
   });
 
   it('allows only one Seniority Level at a time', async () => {
@@ -82,11 +84,11 @@ describe('InterviewSetupForm', () => {
 
   it('starts again from the defaults when mounted afresh, as on a reload', async () => {
     const user = userEvent.setup();
-    const { unmount } = render(<InterviewSetupForm onSubmitAction={vi.fn()} />);
+    const { unmount } = render(<SetupForm onSubmitAction={vi.fn()} />);
     await user.click(screen.getByRole('radio', { name: 'Junior' }));
     unmount();
 
-    render(<InterviewSetupForm onSubmitAction={vi.fn()} />);
+    render(<SetupForm onSubmitAction={vi.fn()} />);
 
     expect(screen.getByRole('radio', { name: 'Mid' })).toBeChecked();
   });
@@ -111,13 +113,11 @@ describe('InterviewSetupForm', () => {
     await user.click(screen.getByRole('button', { name: 'Start interview' }));
 
     expect(screen.getByRole('radio', { name: 'Mixed' })).not.toBeChecked();
-    await waitFor(() =>
-      expect(onSubmitAction).toHaveBeenCalledExactlyOnceWith({
-        seniorityLevel: 'mid',
-        category: 'typescript',
-        questionCount: 5,
-      }),
-    );
+    await expectSubmitted(onSubmitAction, {
+      seniorityLevel: 'mid',
+      category: 'typescript',
+      questionCount: '5',
+    });
   });
 
   it('offers a Question Count slider from 5 to 10 that starts at 5 and shows its value', async () => {
@@ -198,12 +198,23 @@ describe('InterviewSetupForm', () => {
     await user.click(screen.getByRole('button', { name: 'Increase Question Count' }));
     await user.click(screen.getByRole('button', { name: 'Start interview' }));
 
-    await waitFor(() =>
-      expect(onSubmitAction).toHaveBeenCalledExactlyOnceWith({
-        seniorityLevel: 'junior',
-        category: 'react',
-        questionCount: 7,
-      }),
-    );
+    await expectSubmitted(onSubmitAction, {
+      seniorityLevel: 'junior',
+      category: 'react',
+      questionCount: '7',
+    });
+  });
+
+  it('disables Start interview while the Interview Setup is being submitted', async () => {
+    const { promise, resolve } = Promise.withResolvers<void>();
+    const user = userEvent.setup();
+    render(<SetupForm onSubmitAction={() => promise} />);
+    const start = screen.getByRole('button', { name: 'Start interview' });
+
+    await user.click(start);
+    await waitFor(() => expect(start).toBeDisabled());
+
+    resolve();
+    await waitFor(() => expect(start).toBeEnabled());
   });
 });
