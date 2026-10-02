@@ -20,6 +20,39 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Database
+
+Postgres via [Drizzle ORM](https://orm.drizzle.team) and `node-postgres`. Locally it runs in Docker; in production it's [Supabase](https://supabase.com) (both Postgres 17). Only env vars change between them.
+
+```bash
+cp .env.example .env.local   # points at the local Docker database
+pnpm db:up                   # start Postgres (docker compose) and wait until healthy
+pnpm dev
+curl localhost:3000/api/health
+```
+
+| Script             | What it does                                                |
+| ------------------ | ----------------------------------------------------------- |
+| `pnpm db:up`       | Start local Postgres                                        |
+| `pnpm db:down`     | Stop it (data persists in the `postgres-data` volume)       |
+| `pnpm db:generate` | Generate SQL migrations from `db/schema.ts` into `drizzle/` |
+| `pnpm db:migrate`  | Apply pending migrations to `DATABASE_URL`                  |
+| `pnpm db:push`     | Push schema directly without migrations (prototyping)       |
+| `pnpm db:studio`   | Open Drizzle Studio                                         |
+
+### Environment variables
+
+Env vars are declared and validated in `env.ts` ([T3 Env](https://env.t3.gg) + Zod). `next dev`, `next build` and drizzle-kit fail immediately with a list of what's missing or invalid. Read them through `env` from `@/env`, not `process.env`.
+
+### Supabase (Vercel)
+
+Set these in the Vercel project:
+
+- `DATABASE_URL`: the Supavisor **transaction** pooler string (port `6543`) from Project → Connect. Leave out `sslmode`.
+- `DATABASE_CA_CERT`: the PEM contents of the CA certificate from Database Settings → SSL Configuration. When set, connections use SSL and verify Supabase's certificate.
+
+To run migrations against Supabase from your machine, use the **session** pooler string (port `5432`) with the same `DATABASE_CA_CERT`.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
