@@ -46,6 +46,10 @@ async function writeQuestion({ explanation, ...frontmatter }: QuestionFile) {
   );
 }
 
+async function deleteQuestionFile({ id, category }: Pick<QuestionFile, 'id' | 'category'>) {
+  await rm(path.join(contentDir, category, `${id}.md`));
+}
+
 function seed() {
   return seedQuestionBank({ contentDir, db });
 }
@@ -131,8 +135,10 @@ describe('seedQuestionBank', () => {
       explanation: 'Fiber is React’s reconciler.',
     });
 
-    await seed();
-
+    expect(await seed()).toEqual({
+      questions: { created: 1, updated: 0, deleted: 0 },
+      variants: { created: 2, updated: 0, deleted: 0 },
+    });
     const variants = await storedVariants();
     expect(variants.map((variant) => variant.seniorityLevel)).toEqual(['mid', 'senior']);
   });
@@ -228,9 +234,277 @@ describe('seedQuestionBank', () => {
     expect(await storedVariants()).toEqual([]);
   });
 
+  it('rejects two files declaring the same Question id, and writes nothing', async () => {
+    await writeQuestion({
+      id: 'closures',
+      category: 'javascript',
+      text: 'What is a closure?',
+      variants: [{ seniorityLevel: 'junior', keyPoints: ['Functions remember outer variables.'] }],
+      explanation: 'A closure is...',
+    });
+    await writeQuestion({
+      id: 'closures',
+      category: 'react',
+      text: 'What is a stale closure?',
+      variants: [{ seniorityLevel: 'senior', keyPoints: ['Hooks can capture old state.'] }],
+      explanation: 'A stale closure is...',
+    });
+
+    await expect(seed()).rejects.toThrow(
+      'id "closures" is declared by more than one file: javascript/closures.md, react/closures.md',
+    );
+    expect(await storedQuestions()).toEqual([]);
+  });
+
+  it('reports a duplicate Question id alongside the other problems of an invalid file', async () => {
+    await writeQuestion({
+      id: 'closures',
+      category: 'javascript',
+      text: 'What is a closure?',
+      variants: [],
+      explanation: 'A closure is...',
+    });
+    await writeQuestion({
+      id: 'closures',
+      category: 'react',
+      text: 'What is a stale closure?',
+      variants: [{ seniorityLevel: 'senior', keyPoints: ['Hooks can capture old state.'] }],
+      explanation: 'A stale closure is...',
+    });
+
+    const seeding = seed();
+    await expect(seeding).rejects.toThrow(/javascript\/closures\.md: variants: /);
+    await expect(seeding).rejects.toThrow(/id "closures" is declared by more than one file/);
+  });
+
+  it('reports a file with malformed frontmatter alongside the other files’ problems', async () => {
+    await mkdir(path.join(contentDir, 'javascript'));
+    await writeFile(
+      path.join(contentDir, 'javascript', 'broken.md'),
+      '---\nid: [broken\n---\nBody',
+    );
+    await writeQuestion({
+      id: 'hoisting',
+      category: 'javascript',
+      text: 'What is hoisting?',
+      variants: [],
+      explanation: 'Hoisting...',
+    });
+
+    const seeding = seed();
+    await expect(seeding).rejects.toThrow(/javascript\/broken\.md: /);
+    await expect(seeding).rejects.toThrow(/javascript\/hoisting\.md: variants: /);
+  });
+
   it('seeds the question files committed to the repo', async () => {
     await seedQuestionBank({ contentDir: QUESTION_BANK_DIR, db });
 
     expect(await storedQuestions()).not.toEqual([]);
+  });
+});
+
+describe('re-seeding', () => {
+  const closures: QuestionFile = {
+    id: 'closures',
+    category: 'javascript',
+    text: 'What is a closure?',
+    variants: [
+      { seniorityLevel: 'junior', keyPoints: ['A function remembers its outer variables.'] },
+      { seniorityLevel: 'mid', keyPoints: ['Closures capture variables, not values.'] },
+      { seniorityLevel: 'senior', keyPoints: ['Captured variables are kept alive.'] },
+    ],
+    explanation: 'A closure is...',
+  };
+  const generics: QuestionFile = {
+    id: 'generics',
+    category: 'typescript',
+    text: 'What are generics?',
+    variants: [{ keyPoints: ['Generics make types reusable.'] }],
+    explanation: 'Generics let a type take parameters.',
+  };
+
+  beforeEach(async () => {
+    await writeQuestion(closures);
+    await writeQuestion(generics);
+    await seed();
+  });
+
+  it('leaves the database unchanged when the files are unchanged', async () => {
+    const questionsBefore = await storedQuestions();
+    const variantsBefore = await storedVariants();
+
+    expect(await seed()).toEqual({
+      questions: { created: 0, updated: 0, deleted: 0 },
+      variants: { created: 0, updated: 0, deleted: 0 },
+    });
+    expect(await storedQuestions()).toEqual(questionsBefore);
+    expect(await storedVariants()).toEqual(variantsBefore);
+  });
+
+  it.each([
+    { field: 'Category', change: { category: 'react' } },
+    { field: 'text', change: { text: 'Explain closures.' } },
+    { field: 'Explanation', change: { explanation: 'Closures, revised.' } },
+  ])('updates a Question whose $field changed', async ({ change }) => {
+    await deleteQuestionFile(closures);
+    await writeQuestion({ ...closures, ...change });
+
+    expect(await seed()).toEqual({
+      questions: { created: 0, updated: 1, deleted: 0 },
+      variants: { created: 0, updated: 0, deleted: 0 },
+    });
+    const { variants: _variants, ...question } = { ...closures, ...change };
+    expect(await storedQuestions()).toContainEqual(question);
+  });
+
+  it('updates Variants whose Key Points or text override changed, and adds new ones', async () => {
+    await writeQuestion({
+      ...generics,
+      variants: [
+        { seniorityLevel: 'junior', keyPoints: ['Generics make types reusable.'] },
+        {
+          seniorityLevel: 'senior',
+          textOverride: 'How do you constrain generics?',
+          keyPoints: ['extends constrains a type parameter.'],
+        },
+      ],
+    });
+    await writeQuestion({
+      ...closures,
+      variants: [
+        closures.variants[0],
+        { seniorityLevel: 'mid', keyPoints: ['Closures capture variables.', 'Private state.'] },
+        { ...closures.variants[2], textOverride: 'How can closures leak memory?' },
+      ],
+    });
+
+    expect(await seed()).toEqual({
+      questions: { created: 0, updated: 0, deleted: 0 },
+      // generics' level-agnostic Variant is replaced by levelled ones.
+      variants: { created: 2, updated: 2, deleted: 1 },
+    });
+    expect(await storedVariants()).toEqual([
+      {
+        questionId: 'closures',
+        seniorityLevel: 'junior',
+        textOverride: null,
+        keyPoints: ['A function remembers its outer variables.'],
+      },
+      {
+        questionId: 'closures',
+        seniorityLevel: 'mid',
+        textOverride: null,
+        keyPoints: ['Closures capture variables.', 'Private state.'],
+      },
+      {
+        questionId: 'closures',
+        seniorityLevel: 'senior',
+        textOverride: 'How can closures leak memory?',
+        keyPoints: ['Captured variables are kept alive.'],
+      },
+      {
+        questionId: 'generics',
+        seniorityLevel: 'junior',
+        textOverride: null,
+        keyPoints: ['Generics make types reusable.'],
+      },
+      {
+        questionId: 'generics',
+        seniorityLevel: 'senior',
+        textOverride: 'How do you constrain generics?',
+        keyPoints: ['extends constrains a type parameter.'],
+      },
+    ]);
+  });
+
+  it('clears a Variant’s text override removed from its file', async () => {
+    const [junior, ...rest] = closures.variants;
+    await writeQuestion({
+      ...closures,
+      variants: [{ ...junior, textOverride: 'Closures?' }, ...rest],
+    });
+    await seed();
+    await writeQuestion(closures);
+
+    expect((await seed()).variants).toEqual({ created: 0, updated: 1, deleted: 0 });
+    const variants = await storedVariants();
+    expect(
+      variants.find(
+        (variant) => variant.questionId === 'closures' && variant.seniorityLevel === 'junior',
+      )?.textOverride,
+    ).toBeNull();
+  });
+
+  it('stores reordered Key Points in their new order', async () => {
+    await writeQuestion({
+      ...generics,
+      variants: [{ keyPoints: ['Generics make types reusable.', 'They are erased at runtime.'] }],
+    });
+    await seed();
+    await writeQuestion({
+      ...generics,
+      variants: [{ keyPoints: ['They are erased at runtime.', 'Generics make types reusable.'] }],
+    });
+
+    expect((await seed()).variants).toEqual({ created: 0, updated: 1, deleted: 0 });
+    const variants = await storedVariants();
+    expect(variants.find((variant) => variant.questionId === 'generics')?.keyPoints).toEqual([
+      'They are erased at runtime.',
+      'Generics make types reusable.',
+    ]);
+  });
+
+  it('replaces levelled Variants with a level-agnostic one', async () => {
+    await writeQuestion({ ...closures, variants: [{ keyPoints: ['Functions remember scope.'] }] });
+
+    expect((await seed()).variants).toEqual({ created: 1, updated: 0, deleted: 3 });
+    expect(
+      (await storedVariants()).map(({ questionId, seniorityLevel }) => [
+        questionId,
+        seniorityLevel,
+      ]),
+    ).toEqual([
+      ['closures', null],
+      ['generics', null],
+    ]);
+  });
+
+  it('removes a Question and all its Variants when its file is deleted', async () => {
+    await deleteQuestionFile(closures);
+
+    expect(await seed()).toEqual({
+      questions: { created: 0, updated: 0, deleted: 1 },
+      variants: { created: 0, updated: 0, deleted: 3 },
+    });
+    expect((await storedQuestions()).map((question) => question.id)).toEqual(['generics']);
+    expect((await storedVariants()).map((variant) => variant.questionId)).toEqual(['generics']);
+  });
+
+  it('removes only the Variant that was removed from a file', async () => {
+    await writeQuestion({ ...closures, variants: closures.variants.slice(0, 2) });
+
+    expect(await seed()).toEqual({
+      questions: { created: 0, updated: 0, deleted: 0 },
+      variants: { created: 0, updated: 0, deleted: 1 },
+    });
+    expect(
+      (await storedVariants()).map(({ questionId, seniorityLevel }) => [
+        questionId,
+        seniorityLevel,
+      ]),
+    ).toEqual([
+      ['closures', 'junior'],
+      ['closures', 'mid'],
+      ['generics', null],
+    ]);
+  });
+
+  it('changes nothing when a file is invalid', async () => {
+    await deleteQuestionFile(closures);
+    await writeQuestion({ ...generics, variants: [] });
+
+    await expect(seed()).rejects.toThrow(/typescript\/generics\.md/);
+    expect(await storedQuestions()).toHaveLength(2);
+    expect(await storedVariants()).toHaveLength(4);
   });
 });
