@@ -1,11 +1,10 @@
-import { InterviewSetupForm } from '@/modules/setup/components/interview-setup-form/interview-setup-form';
-import { interviewSetupSchema, type InterviewSetup } from '@/modules/setup/lib/interview-setup';
+import { SetupForm } from '@/modules/setup/components/setup-form/setup-form';
+import { parseInterviewSetup } from '@/modules/setup/lib/schema';
 
-async function logInterviewSetup(setup: InterviewSetup) {
+async function logInterviewSetup(formData: FormData) {
   'use server';
 
-  // Server Functions are reachable directly, so validate the Interview Setup again here.
-  console.log('Interview Setup', interviewSetupSchema.parse(setup));
+  console.log('Interview Setup', parseInterviewSetup(formData));
 }
 
 export default function Home() {
@@ -17,7 +16,7 @@ export default function Home() {
           Choose the level you want to practise at, then start your frontend interview.
         </p>
       </header>
-      <InterviewSetupForm onSubmitAction={logInterviewSetup} />
+      <SetupForm onSubmitAction={logInterviewSetup} />
     </main>
   );
 }
