@@ -1,5 +1,5 @@
-import { InterviewSetupForm } from '@/components/interview-setup-form';
-import { interviewSetupSchema, type InterviewSetup } from '@/lib/interview-setup';
+import { InterviewSetupForm } from '@/modules/setup/components/interview-setup-form/interview-setup-form';
+import { interviewSetupSchema, type InterviewSetup } from '@/modules/setup/lib/interview-setup';
 
 async function logInterviewSetup(setup: InterviewSetup) {
   'use server';
