@@ -13,7 +13,13 @@ export const env = createEnv({
       ? z.string().includes('BEGIN CERTIFICATE', { message: 'Must be a PEM certificate' })
       : z.string().optional(),
   },
-  client: {},
-  experimental__runtimeEnv: {},
+  client: {
+    NEXT_PUBLIC_SUPABASE_URL: z.url(),
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: z.string().min(1),
+  },
+  experimental__runtimeEnv: {
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+  },
   emptyStringAsUndefined: true,
 });

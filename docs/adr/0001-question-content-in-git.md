@@ -1,0 +1,3 @@
+# Question content lives in git; the database is a seeded copy
+
+Questions (text, Explanation, Key Points per Seniority Level) are written as one markdown file per Question in the repo and loaded into Postgres by a manual `pnpm db:seed`. The seed validates every file, then makes the database match the files exactly in one transaction, including deleting Questions whose files were removed. We chose this over an admin UI because question content then gets reviewed in PRs like code and stays readable as learning material. The consequence: editing Questions directly in the database is pointless, because the next seed overwrites it.
