@@ -13,7 +13,7 @@ The choices made before an Interview starts: Seniority Level, Category and Quest
 _Avoid_: Session config, settings, preferences
 
 **Seniority Level**:
-The candidate level an Interview targets: Junior, Mid or Senior. It decides which Questions are eligible and which Expectations a candidate's answer is judged against.
+The candidate level an Interview targets: Junior, Mid or Senior. It decides which Questions are eligible and which Question Variant is asked.
 _Avoid_: Difficulty, level
 
 **Category**:
@@ -25,12 +25,28 @@ The Category whose Questions are spread as evenly as possible across all the oth
 _Avoid_: Random
 
 **Question**:
-A single subject a candidate is asked about, such as the event loop. It belongs to one Category, is available at one or more Seniority Levels, and usually keeps the same wording at every level, though a level may have its own wording.
+A single subject a candidate is asked about, such as the event loop. It belongs to one Category and is either levelled or level-agnostic. A levelled Question has one Question Variant for each Seniority Level it is available at. A level-agnostic Question has one Question Variant, used at every Seniority Level.
 _Avoid_: Prompt, task
 
-**Expectations**:
-What a candidate's answer to a Question must cover at a given Seniority Level. A Senior's Expectations go deeper than a Junior's for the same Question.
-_Avoid_: Rubric, model answer
+**Explanation**:
+The complete write-up of a Question's subject, shared by all Seniority Levels. It covers every Key Point the Question assesses at any level, and can be read on its own as learning material.
+_Avoid_: Reference answer, ideal answer, model answer
+
+**Question Text**:
+The sentence the AI interviewer says to ask a Question. A Question has a default Question Text, and a Question Variant may replace it with its own.
+_Avoid_: Wording, prompt
+
+**Question Variant**:
+The form a Question takes at a Seniority Level: the Key Points a candidate's answer must cover there, plus an optional Question Text of its own. Each Variant lists all of its Key Points; it inherits none from lower levels. A Senior Variant goes deeper than a Junior one for the same Question.
+_Avoid_: Expectations, rubric, bar
+
+**Key Point**:
+A single essential idea that a candidate's answer must contain, as listed in a Question Variant. Every Key Point is essential; there are no optional ones. A Key Point the candidate covers only in reply to a Follow-up Question still counts, but is marked as prompted.
+_Avoid_: Criterion, checkpoint, bonus point
+
+**Follow-up Question**:
+A question the AI interviewer comes up with during the Interview, based on the candidate's answer to a Question. A Question gets at most 3 of them, and they don't count toward the Question Count.
+_Avoid_: Sub-question, probe
 
 **Question Count**:
 The number of questions asked in an Interview, from 5 to 10.
