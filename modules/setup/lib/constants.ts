@@ -1,10 +1,13 @@
 export const SENIORITY_LEVELS = ['junior', 'mid', 'senior'] as const;
-export const CATEGORIES = ['javascript', 'react', 'typescript', 'mixed'] as const;
+export const QUESTION_CATEGORIES = ['javascript', 'react', 'typescript'] as const;
+// Mixed spreads an Interview across the other Categories, so no Question belongs to it.
+export const CATEGORIES = [...QUESTION_CATEGORIES, 'mixed'] as const;
 export const QUESTION_COUNT_MIN = 5;
 export const QUESTION_COUNT_MAX = 10;
 
 export type SeniorityLevel = (typeof SENIORITY_LEVELS)[number];
 export type Category = (typeof CATEGORIES)[number];
+export type QuestionCategory = (typeof QUESTION_CATEGORIES)[number];
 
 export const INTERVIEW_SETUP_DEFAULTS = {
   seniorityLevel: 'mid',

@@ -1,0 +1,26 @@
+// `pnpm db:seed`: loads the committed question files into the database DATABASE_URL points at.
+import '../load-env';
+
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { Pool } from 'pg';
+
+import { getDatabaseConfig } from './config';
+import { QUESTION_BANK_DIR, seedQuestionBank } from './seed-question-bank';
+
+async function main() {
+  // A dedicated pool rather than the app's `db`, so it can be closed and the process can exit.
+  const { url, ssl } = getDatabaseConfig();
+  const pool = new Pool({ connectionString: url.toString(), ssl });
+  try {
+    await seedQuestionBank({ contentDir: QUESTION_BANK_DIR, db: drizzle({ client: pool }) });
+    console.log('Seeded the question bank.');
+  } finally {
+    await pool.end();
+  }
+}
+
+main().catch((error: unknown) => {
+  // Some errors (e.g. a refused connection) have an empty message, so fall back to the whole error.
+  console.error(error instanceof Error && error.message ? error.message : error);
+  process.exit(1);
+});
