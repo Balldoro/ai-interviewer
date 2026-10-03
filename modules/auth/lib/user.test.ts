@@ -16,7 +16,7 @@ const { getClaims, redirect } = vi.hoisted(() => ({
   }),
 }));
 
-vi.mock('./supabase-server', () => ({
+vi.mock('./supabase-client', () => ({
   createSupabaseServerClient: async () => ({ auth: { getClaims } }),
 }));
 

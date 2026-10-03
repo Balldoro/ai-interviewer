@@ -10,7 +10,7 @@ const { exchangeCodeForSession, signOut, recordUser } = vi.hoisted(() => ({
   recordUser: vi.fn(),
 }));
 
-vi.mock('@/modules/auth/lib/supabase-server', () => ({
+vi.mock('@/modules/auth/lib/supabase-client', () => ({
   createSupabaseServerClient: async () => ({ auth: { exchangeCodeForSession, signOut } }),
 }));
 

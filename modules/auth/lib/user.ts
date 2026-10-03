@@ -2,13 +2,10 @@ import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import { redirect } from 'next/navigation';
 
 import { users } from '@/db/schema';
+import { ROUTES } from '@/lib/routes';
 
-import { SIGN_IN_PATH } from './constants';
-import { createSupabaseServerClient } from './supabase-server';
+import { createSupabaseServerClient } from './supabase-client';
 
-// The one way server code (pages, server actions, route handlers) learns who the User is.
-// getClaims verifies the session's JWT, so a forged cookie can't pose as a User. Any failure,
-// including no session at all, means signed out.
 export async function getUserId() {
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase.auth.getClaims();
@@ -18,11 +15,10 @@ export async function getUserId() {
   return data.claims.sub;
 }
 
-// For pages and actions only a User may use: sends a signed-out visitor to sign in.
 export async function requireUserId() {
   const userId = await getUserId();
 
-  if (!userId) redirect(SIGN_IN_PATH);
+  if (!userId) redirect(ROUTES.signIn);
 
   return userId;
 }
