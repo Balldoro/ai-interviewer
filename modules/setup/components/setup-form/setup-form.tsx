@@ -66,9 +66,7 @@ export function SetupForm({ onSubmitAction }: SetupFormProps) {
             value={questionCount}
             onValueChange={changeQuestionCount}
             thumbLabel={questionCount}
-            // Inset so the balloon stays clear of the form edge and the − button at either end. The bottom padding
-            // centres the 0.375rem track on the 2.25rem −/+ buttons, as the slider is taller than them.
-            className="mr-4 ml-5 pb-[calc((2.25rem-0.375rem)/2)]"
+            className="mr-4 ml-5 pb-3.75"
           />
           <Button
             type="button"
