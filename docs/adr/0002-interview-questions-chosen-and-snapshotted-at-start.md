@@ -1,0 +1,5 @@
+# An Interview's Questions are chosen and snapshotted when it starts, and revealed one at a time
+
+When an Interview is created, the server picks all of its Questions in one go and stores them in order as Interview Questions, each with a copy of the Question Text and Key Points it was asked with. The client never receives more than the Interview Question it is answering: the next one comes back only in the response to submitting an Answer, and there is no prefetching. We chose this so the Network tab can't reveal upcoming Questions, Key Points never leave the server, a dropped connection or reload resumes from the stored position, and Mixed's even spread across Categories is decided once rather than recomputed per Question.
+
+Interview Questions keep a `question_id` foreign key to `questions` with `ON DELETE SET NULL`. Because the seed deletes Questions whose files were removed (ADR 0001), RESTRICT would make removing or renaming any Question that was ever asked fail the seed, and CASCADE would silently erase parts of past Interviews. The snapshot, not the link, is what past Interviews rely on; the link only serves things like "practise this Question again".

@@ -1,5 +1,5 @@
 // Drizzle table definitions. Add tables here, then run `pnpm db:generate` and `pnpm db:migrate`.
-import { pgEnum, pgTable, text, unique } from 'drizzle-orm/pg-core';
+import { pgEnum, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
 
 import { QUESTION_CATEGORIES, SENIORITY_LEVELS } from '../modules/setup/lib/constants';
 
@@ -8,13 +8,16 @@ export const categoryEnum = pgEnum('category', QUESTION_CATEGORIES);
 // Declaration order gives junior < mid < senior.
 export const seniorityLevelEnum = pgEnum('seniority_level', SENIORITY_LEVELS);
 
+// Every table enables RLS with no policies, so Supabase's Data API can't reach it even if it's
+// turned on. The app connects as the tables' owner, which RLS doesn't apply to.
+
 // Seeded from the question files by `pnpm db:seed` (see docs/adr/0001); don't edit by hand.
 export const questions = pgTable('questions', {
   id: text('id').primaryKey(),
   category: categoryEnum('category').notNull(),
   text: text('text').notNull(),
   explanation: text('explanation').notNull(),
-});
+}).enableRLS();
 
 export const questionVariants = pgTable(
   'question_variants',
@@ -30,4 +33,12 @@ export const questionVariants = pgTable(
   },
   // NULLS NOT DISTINCT treats level-agnostic as its own level, so it can't be duplicated either.
   (table) => [unique().on(table.questionId, table.seniorityLevel).nullsNotDistinct()],
-);
+).enableRLS();
+
+// One row per User who has signed in, keyed by their Supabase Auth user id. Created by the app
+// on sign-in rather than by a trigger on auth.users, and with no foreign key to it, because the
+// database may not be the Supabase one.
+export const users = pgTable('users', {
+  id: uuid('id').primaryKey(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}).enableRLS();
