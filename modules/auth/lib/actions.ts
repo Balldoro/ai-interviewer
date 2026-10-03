@@ -4,6 +4,7 @@ import type { Provider } from '@supabase/supabase-js';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 
+import { logger } from '@/lib/logger';
 import { ROUTES } from '@/lib/routes';
 
 import { createSupabaseServerClient } from './supabase-client';
@@ -14,7 +15,9 @@ export async function signInWith(provider: OAuthProvider) {
   const supabase = await createSupabaseServerClient();
   const origin = (await headers()).get('origin');
 
-  const callbackUrl = new URL(ROUTES.authCallback, origin ?? undefined);
+  if (!origin) throw new Error('Sign-in needs the Origin header to build the callback URL');
+
+  const callbackUrl = new URL(ROUTES.authCallback, origin);
 
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider,
@@ -22,7 +25,7 @@ export async function signInWith(provider: OAuthProvider) {
   });
 
   if (error) {
-    console.error(`Sign-in with ${provider} failed to start`, error);
+    logger.error('Sign-in failed to start', error, { provider });
     redirect(`${ROUTES.signIn}?error=sign-in-failed`);
   }
 

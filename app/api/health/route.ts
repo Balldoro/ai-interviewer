@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 
 import { db } from '@/db';
+import { logger } from '@/lib/logger';
 
 export async function GET() {
   const startedAt = performance.now();
@@ -14,7 +15,7 @@ export async function GET() {
       latencyMs: Math.round(performance.now() - startedAt),
     });
   } catch (error) {
-    console.error('Health check failed', error);
+    logger.error('Health check failed', error);
 
     return Response.json({ status: 'error', database: 'unreachable' }, { status: 503 });
   }

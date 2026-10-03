@@ -1,3 +1,4 @@
+import { logger } from '@/lib/logger';
 import { requireUserId } from '@/modules/auth/lib/user';
 import { SignOutButton } from '@/modules/auth/components/sign-out-button';
 import { SetupForm } from '@/modules/setup/components/setup-form/setup-form';
@@ -8,7 +9,7 @@ async function logInterviewSetup(formData: FormData) {
 
   const userId = await requireUserId();
 
-  console.log('Interview Setup', userId, parseInterviewSetup(formData));
+  logger.info('Interview Setup submitted', { userId, setup: parseInterviewSetup(formData) });
 }
 
 export default async function Home() {
