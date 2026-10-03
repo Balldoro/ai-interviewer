@@ -1,9 +1,9 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
 import { db } from '@/db';
+import { ROUTES } from '@/lib/routes';
 import { recordUser } from '@/modules/auth/lib/user';
-import { SIGN_IN_PATH } from '@/modules/auth/lib/constants';
-import { createSupabaseServerClient } from '@/modules/auth/lib/supabase-server';
+import { createSupabaseServerClient } from '@/modules/auth/lib/supabase-client';
 
 // GitHub or Google sends the User back here (via Supabase) with a one-time code.
 export async function GET(request: NextRequest) {
@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
       try {
         await recordUser(db, data.user.id);
 
-        return NextResponse.redirect(new URL('/', origin));
+        return NextResponse.redirect(new URL(ROUTES.setup, origin));
       } catch (recordError) {
         console.error('Recording the User failed', recordError);
         // Without this the new session would stay, and the sign-in page would send the User
@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const signInUrl = new URL(SIGN_IN_PATH, origin);
+  const signInUrl = new URL(ROUTES.signIn, origin);
   signInUrl.searchParams.set('error', 'sign-in-failed');
 
   return NextResponse.redirect(signInUrl);

@@ -4,9 +4,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { env } from '@/env';
 
 // Refreshes the Supabase session and writes the new tokens to both the request (for the page
-// rendering now) and the response (for the browser). Server Components can't set cookies, so
-// without this an expired access token would sign the User out. It doesn't guard pages;
-// that's requireUserId's job.
+// rendering now) and the response (for the browser).
 // Adapted from https://supabase.com/docs/guides/auth/server-side/creating-a-client; keep the
 // cookie handling as it is there.
 export async function updateSession(request: NextRequest) {

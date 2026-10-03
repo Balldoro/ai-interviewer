@@ -7,7 +7,6 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Everything but static assets, images and the health check.
   matcher: [
     '/((?!_next/static|_next/image|favicon.ico|api/health|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],

@@ -1,13 +1,14 @@
 import { redirect } from 'next/navigation';
 
 import { Button } from '@/components/ui/button';
+import { ROUTES } from '@/lib/routes';
 import { signInWith } from '@/modules/auth/lib/actions';
 import { getUserId } from '@/modules/auth/lib/user';
 
 export default async function SignIn({ searchParams }: PageProps<'/sign-in'>) {
   const { error } = await searchParams;
 
-  if (await getUserId()) redirect('/');
+  if (await getUserId()) redirect(ROUTES.setup);
 
   return (
     <main className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center gap-8 px-4 py-12 sm:px-6">
