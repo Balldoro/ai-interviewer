@@ -61,6 +61,7 @@ export function useAnswerRecorder({ interviewId, position }: UseAnswerRecorderOp
     isDiscardDialogOpen,
     setIsDiscardDialogOpen,
     clickRecordingButton,
+    stopRecording: recorder.stop,
     confirmDiscard,
     submitAnswer,
   };

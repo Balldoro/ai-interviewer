@@ -77,6 +77,9 @@ export function useAudioRecorder() {
           release(stream);
           // The recorder also stops on its own, e.g. when the microphone is unplugged.
           if (recorderRef.current === recorder) recorderRef.current = null;
+          // Releasing the microphone on unmount stops the recorder too, but the audio is no longer
+          // needed.
+          if (!isMountedRef.current) return;
 
           if (chunks.length === 0) {
             setState({ status: 'microphone_error', error: 'no_audio' });
