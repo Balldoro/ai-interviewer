@@ -38,12 +38,18 @@ type QuestionFile = {
 };
 
 async function writeQuestion({ explanation, ...frontmatter }: QuestionFile) {
-  const dir = path.join(contentDir, frontmatter.category);
-  await mkdir(dir, { recursive: true });
-  await writeFile(
-    path.join(dir, `${frontmatter.id}.md`),
-    matter.stringify(explanation, frontmatter),
-  );
+  await writeQuestionFile(`${frontmatter.category}/${frontmatter.id}.md`, frontmatter, explanation);
+}
+
+// Writes `file` (relative to the content dir) as given, so a test can break any part of it.
+async function writeQuestionFile(
+  file: string,
+  frontmatter: Record<string, unknown>,
+  explanation: string,
+) {
+  const filePath = path.join(contentDir, file);
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(filePath, matter.stringify(explanation, frontmatter));
 }
 
 async function deleteQuestionFile({ id, category }: Pick<QuestionFile, 'id' | 'category'>) {
@@ -195,6 +201,115 @@ describe('seedQuestionBank', () => {
         keyPoints: ['== coerces types; === does not.'],
       },
     ]);
+  });
+
+  describe('rejects an invalid question file, and writes nothing', () => {
+    const { explanation, ...hoisting } = {
+      id: 'hoisting',
+      category: 'javascript',
+      text: 'What is hoisting?',
+      variants: [
+        { seniorityLevel: 'mid', keyPoints: ['Declarations are processed before code runs.'] },
+      ],
+      explanation: 'Hoisting...',
+    };
+    const { id: _id, ...withoutId } = hoisting;
+    const { category: _category, ...withoutCategory } = hoisting;
+    const { text: _text, ...withoutText } = hoisting;
+
+    it.each([
+      { problem: 'a missing id', frontmatter: withoutId, error: 'id: ' },
+      { problem: 'an empty id', frontmatter: { ...hoisting, id: ' ' }, error: 'id: ' },
+      { problem: 'a missing Category', frontmatter: withoutCategory, error: 'category: ' },
+      {
+        problem: 'an empty Category',
+        frontmatter: { ...hoisting, category: '' },
+        error: 'category: ',
+      },
+      {
+        problem: 'Category Mixed',
+        frontmatter: { ...hoisting, category: 'mixed' },
+        error: 'category: ',
+      },
+      {
+        problem: 'an unknown Category',
+        frontmatter: { ...hoisting, category: 'vue' },
+        error: 'category: ',
+      },
+      {
+        problem: 'a Category that doesn’t match its folder',
+        frontmatter: { ...hoisting, category: 'react' },
+        error: 'category "react" does not match its folder "javascript"',
+      },
+      { problem: 'a missing Question Text', frontmatter: withoutText, error: 'text: ' },
+      {
+        problem: 'an empty Question Text',
+        frontmatter: { ...hoisting, text: ' ' },
+        error: 'text: ',
+      },
+      {
+        problem: 'an empty Explanation',
+        frontmatter: hoisting,
+        explanation: '\n',
+        error: 'the Explanation (markdown body) is empty',
+      },
+      {
+        problem: 'an unknown Seniority Level',
+        frontmatter: { ...hoisting, variants: [{ seniorityLevel: 'lead', keyPoints: ['A'] }] },
+        error: 'variants.0.seniorityLevel: ',
+      },
+      {
+        problem: 'a Question with no Variants',
+        frontmatter: { ...hoisting, variants: [] },
+        error: 'variants: ',
+      },
+      {
+        problem: 'a Variant with no Key Points',
+        frontmatter: { ...hoisting, variants: [{ seniorityLevel: 'mid', keyPoints: [] }] },
+        error: 'variants.0.keyPoints: ',
+      },
+      {
+        problem: 'an empty Key Point',
+        frontmatter: { ...hoisting, variants: [{ seniorityLevel: 'mid', keyPoints: ['A', ' '] }] },
+        error: 'variants.0.keyPoints.1: ',
+      },
+    ])('$problem', async ({ frontmatter, explanation: body = explanation, error }) => {
+      await writeQuestionFile('javascript/hoisting.md', frontmatter, body);
+
+      await expect(seed()).rejects.toThrow(`javascript/hoisting.md: ${error}`);
+      expect(await storedQuestions()).toEqual([]);
+      expect(await storedVariants()).toEqual([]);
+    });
+  });
+
+  it('reports every problem of every invalid file in one error', async () => {
+    await writeQuestionFile(
+      'javascript/hoisting.md',
+      { id: 'hoisting', category: 'react', text: '', variants: [] },
+      'Hoisting...',
+    );
+    await writeQuestionFile(
+      'typescript/generics.md',
+      { id: 'generics', category: 'typescript', text: 'What are generics?', variants: [] },
+      '',
+    );
+    await writeQuestion({
+      id: 'fiber',
+      category: 'react',
+      text: 'What is React Fiber?',
+      variants: [{ seniorityLevel: 'senior', keyPoints: ['Rendering is interruptible.'] }],
+      explanation: 'Fiber is React’s reconciler.',
+    });
+
+    const seeding = seed();
+    await expect(seeding).rejects.toThrow(
+      /javascript\/hoisting\.md: category "react" does not match its folder "javascript"/,
+    );
+    await expect(seeding).rejects.toThrow(/javascript\/hoisting\.md: text: /);
+    await expect(seeding).rejects.toThrow(/javascript\/hoisting\.md: variants: /);
+    await expect(seeding).rejects.toThrow(/typescript\/generics\.md: the Explanation .* is empty/);
+    await expect(seeding).rejects.toThrow(/typescript\/generics\.md: variants: /);
+    expect(await storedQuestions()).toEqual([]);
   });
 
   it('rejects a Question with two Variants for the same Seniority Level, and writes nothing', async () => {
