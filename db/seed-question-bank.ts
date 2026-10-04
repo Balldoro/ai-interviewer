@@ -188,6 +188,11 @@ async function readQuestionBank(contentDir: string): Promise<Question[]> {
     if (!explanation) {
       problems.push(`${label}: the Explanation (markdown body) is empty`);
     }
+    // An unknown Category is already reported by the schema, so only a known one is compared.
+    const folder = label.split(path.sep)[0];
+    if (QUESTION_CATEGORIES.includes(data.category) && data.category !== folder) {
+      problems.push(`${label}: category "${data.category}" does not match its folder "${folder}"`);
+    }
     if (typeof data.id === 'string' && data.id.trim()) {
       const id = data.id.trim();
       idFiles.set(id, [...(idFiles.get(id) ?? []), label]);
