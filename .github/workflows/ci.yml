@@ -17,8 +17,6 @@ jobs:
     name: Lint, format, typecheck, test & build
     runs-on: ubuntu-latest
     env:
-      # env.ts validates these at build time; CI never connects to the database, Supabase or
-      # ElevenLabs.
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ai_interviewer
       NEXT_PUBLIC_SUPABASE_URL: https://ci.supabase.co
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci
@@ -31,7 +29,6 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          # Read from `engines.node` in package.json, which also sets the Node version on Vercel.
           node-version-file: package.json
           cache: pnpm
 
