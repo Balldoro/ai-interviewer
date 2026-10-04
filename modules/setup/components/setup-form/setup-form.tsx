@@ -16,17 +16,12 @@ import {
   SENIORITY_LEVEL_LABELS,
   SENIORITY_LEVELS,
 } from '../../lib/constants';
-import { useSetupForm, type SubmitSetupForm } from './use-setup-form';
+import { useSetupForm } from './use-setup-form';
 
-type SetupFormProps = {
-  onSubmitAction: SubmitSetupForm;
-};
-
-export function SetupForm({ onSubmitAction }: SetupFormProps) {
+export function SetupForm() {
   const id = useId();
 
-  const { questionCount, changeQuestionCount, formAction, isPending } =
-    useSetupForm(onSubmitAction);
+  const { questionCount, changeQuestionCount, formAction, isPending, error } = useSetupForm();
 
   const questionCountLabelId = `${id}-question-count`;
 
@@ -94,6 +89,11 @@ export function SetupForm({ onSubmitAction }: SetupFormProps) {
       <Button type="submit" size="lg" disabled={isPending} className="self-stretch sm:self-center">
         Start interview
       </Button>
+      {error && (
+        <p role="alert" className="text-sm text-destructive sm:text-center">
+          {error}
+        </p>
+      )}
     </form>
   );
 }

@@ -1,6 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
-import { db } from '@/db';
 import { logger } from '@/lib/logger';
 import { ROUTES } from '@/lib/routes';
 import { recordUser } from '@/modules/auth/lib/user';
@@ -19,7 +18,7 @@ export async function GET(request: NextRequest) {
       logger.error('Exchanging the OAuth code for a session failed', error);
     } else {
       try {
-        await recordUser(db, data.user.id);
+        await recordUser(data.user.id);
 
         return NextResponse.redirect(new URL(ROUTES.setup, origin));
       } catch (recordError) {

@@ -15,6 +15,13 @@
       "when": 1791016747501,
       "tag": "0001_users",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791115132930,
+      "tag": "0002_interviews",
+      "breakpoints": true
     }
   ]
 }

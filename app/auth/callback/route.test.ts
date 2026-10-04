@@ -16,8 +16,6 @@ vi.mock('@/modules/auth/lib/supabase-client', () => ({
 
 vi.mock('@/modules/auth/lib/user', () => ({ recordUser }));
 
-vi.mock('@/db', () => ({ db: 'db' }));
-
 function callback(query: string) {
   return GET(new NextRequest(`http://localhost:3000/auth/callback?${query}`));
 }
@@ -35,7 +33,7 @@ describe('GET /auth/callback', () => {
 
     const response = await callback('code=abc');
 
-    expect(recordUser).toHaveBeenCalledExactlyOnceWith('db', 'user-1');
+    expect(recordUser).toHaveBeenCalledExactlyOnceWith('user-1');
     expect(response.headers.get('location')).toBe('http://localhost:3000/');
   });
 

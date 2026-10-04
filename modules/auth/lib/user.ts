@@ -1,6 +1,8 @@
-import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
+import 'server-only';
+
 import { redirect } from 'next/navigation';
 
+import { db } from '@/db';
 import { users } from '@/db/schema';
 import { ROUTES } from '@/lib/routes';
 
@@ -23,10 +25,8 @@ export async function requireUserId() {
   return userId;
 }
 
-type Database = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
-
 // Makes sure the User has a row for other tables to reference. Runs on every sign-in, so it
 // must leave an existing row alone; that also refills a local database that was wiped.
-export async function recordUser(db: Database, userId: string) {
+export async function recordUser(userId: string) {
   await db.insert(users).values({ id: userId }).onConflictDoNothing();
 }

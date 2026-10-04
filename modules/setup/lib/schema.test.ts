@@ -13,12 +13,12 @@ describe('parseInterviewSetup', () => {
     expect(
       parseInterviewSetup(
         formData({ seniorityLevel: 'senior', category: 'react', questionCount: '7' }),
-      ),
+      ).data,
     ).toEqual({ seniorityLevel: 'senior', category: 'react', questionCount: 7 });
   });
 
   it('falls back to the defaults for missing fields', () => {
-    expect(parseInterviewSetup(formData({}))).toEqual({
+    expect(parseInterviewSetup(formData({})).data).toEqual({
       seniorityLevel: 'mid',
       category: 'mixed',
       questionCount: 5,
@@ -34,6 +34,6 @@ describe('parseInterviewSetup', () => {
     { questionCount: 'five' },
     { questionCount: '' },
   ])('rejects a tampered field: %o', (fields) => {
-    expect(() => parseInterviewSetup(formData(fields))).toThrow();
+    expect(parseInterviewSetup(formData(fields)).success).toBe(false);
   });
 });
