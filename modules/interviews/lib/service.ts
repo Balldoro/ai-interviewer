@@ -4,10 +4,13 @@ import { and, asc, eq, isNull, or, sql } from 'drizzle-orm';
 import * as z from 'zod';
 
 import { db } from '@/db';
-import { interviewQuestions, interviews, questions, questionVariants } from '@/db/schema';
+import { answers, interviewQuestions, interviews, questions, questionVariants } from '@/db/schema';
+import { logger } from '@/lib/logger';
 import { shuffle } from '@/lib/utils';
 import { QUESTION_CATEGORIES, type QuestionCategory } from '@/modules/setup/lib/constants';
 import type { InterviewSetup } from '@/modules/setup/lib/schema';
+
+import type { Voice } from './voice';
 
 export type InterviewStep = {
   position: number;
@@ -15,15 +18,23 @@ export type InterviewStep = {
   questionText: string;
 };
 
-export type AnswerCheck = 'accepted' | 'not_found' | 'not_in_progress' | 'not_current_question';
+export type AnswerOutcome =
+  | 'stored'
+  | 'already_answered'
+  | 'not_heard'
+  | 'not_found'
+  | 'not_in_progress'
+  | 'not_current_question';
 
 export interface InterviewParams {
   userId: string;
   interviewId: string;
 }
 
-export interface AnswerParams extends InterviewParams {
+export interface SubmitAnswerParams extends InterviewParams {
+  voice: Voice;
   position: number;
+  audio: Blob;
 }
 
 export interface StartInterviewParams {
@@ -96,22 +107,47 @@ export async function getInterviewStep({
 
   if (!current) return null;
 
-  const { status: _status, ...step } = current;
-  return step;
+  const { position, questionCount, questionText } = current;
+  return { position, questionCount, questionText };
 }
 
-export async function checkAnswer({
+/**
+ * Transcribes the recording and stores the text as the Answer to the current Interview Question.
+ * The audio itself is never stored. Nothing is stored when the Interview Question already has an
+ * Answer, or when the recording can't be transcribed or holds no speech.
+ */
+export async function submitAnswer({
+  voice,
   userId,
   interviewId,
   position,
-}: AnswerParams): Promise<AnswerCheck> {
+  audio,
+}: SubmitAnswerParams): Promise<AnswerOutcome> {
   const current = await findCurrentStep({ userId, interviewId });
 
   if (!current) return 'not_found';
   if (current.status !== 'in_progress') return 'not_in_progress';
   if (current.position !== position) return 'not_current_question';
+  if (current.isAnswered) return 'already_answered';
 
-  return 'accepted';
+  let transcript: string;
+  try {
+    transcript = (await voice.transcribe(audio)).trim();
+  } catch (error) {
+    logger.error('Transcribing the Answer failed', error, { interviewId, position });
+    return 'not_heard';
+  }
+
+  if (!transcript) return 'not_heard';
+
+  // A submit racing this one may have stored its Answer since the check above.
+  const stored = await db
+    .insert(answers)
+    .values({ interviewQuestionId: current.interviewQuestionId, transcript })
+    .onConflictDoNothing()
+    .returning({ id: answers.id });
+
+  return stored.length > 0 ? 'stored' : 'already_answered';
 }
 
 // Until Answers are stored, the current Interview Question is always the first one.
@@ -120,13 +156,19 @@ async function findCurrentStep({ userId, interviewId }: InterviewParams) {
 
   const [step] = await db
     .select({
+      interviewQuestionId: interviewQuestions.id,
       position: interviewQuestions.position,
       questionCount: interviews.questionCount,
       questionText: interviewQuestions.questionText,
       status: interviews.status,
+      isAnswered: sql<boolean>`${answers.id} is not null`,
     })
     .from(interviews)
     .innerJoin(interviewQuestions, eq(interviewQuestions.interviewId, interviews.id))
+    .leftJoin(
+      answers,
+      and(eq(answers.interviewQuestionId, interviewQuestions.id), eq(answers.followUpIndex, 0)),
+    )
     .where(and(eq(interviews.id, interviewId), eq(interviews.userId, userId)))
     .orderBy(asc(interviewQuestions.position))
     .limit(1);

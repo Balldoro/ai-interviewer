@@ -6,14 +6,15 @@ import { submitAnswerAction } from './actions';
 const USER_ID = '00000000-0000-4000-8000-000000000001';
 const INTERVIEW_ID = '00000000-0000-4000-8000-000000000002';
 
-const { checkAnswer, logger } = vi.hoisted(() => ({
-  checkAnswer: vi.fn(),
+const { submitAnswer, logger } = vi.hoisted(() => ({
+  submitAnswer: vi.fn(),
   logger: { warn: vi.fn(), error: vi.fn() },
 }));
 
 vi.mock('@/modules/auth/lib/user', () => ({ requireUserId: async () => USER_ID }));
 vi.mock('@/lib/logger', () => ({ logger }));
-vi.mock('./service', () => ({ checkAnswer, startInterview: vi.fn() }));
+vi.mock('./service', () => ({ submitAnswer, startInterview: vi.fn() }));
+vi.mock('./elevenlabs-voice', () => ({ elevenLabsVoice: { transcribe: vi.fn() } }));
 
 function answer(fields: Partial<Record<'interviewId' | 'position', string>> = {}) {
   const formData = new FormData();
@@ -24,7 +25,7 @@ function answer(fields: Partial<Record<'interviewId' | 'position', string>> = {}
 }
 
 beforeEach(() => {
-  checkAnswer.mockResolvedValue('accepted');
+  submitAnswer.mockResolvedValue('stored');
 });
 
 afterEach(() => {
@@ -32,26 +33,33 @@ afterEach(() => {
 });
 
 describe('submitAnswerAction', () => {
-  it('checks the Answer for the signed-in User and confirms it was received', async () => {
+  it('submits the recording as the signed-in User’s Answer and confirms it was received', async () => {
     expect(await submitAnswerAction(answer({ position: '2' }))).toEqual({ received: true });
-    expect(checkAnswer).toHaveBeenCalledWith({
-      userId: USER_ID,
-      interviewId: INTERVIEW_ID,
-      position: 2,
-    });
+    expect(submitAnswer).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: USER_ID, interviewId: INTERVIEW_ID, position: 2 }),
+    );
+    const { audio } = submitAnswer.mock.calls[0][0];
+    expect(await audio.text()).toBe('audio');
   });
 
-  it('asks for a new recording without checking the Answer when the submission is invalid', async () => {
+  it('confirms a repeated submit for an answered Interview Question was received', async () => {
+    submitAnswer.mockResolvedValue('already_answered');
+
+    expect(await submitAnswerAction(answer())).toEqual({ received: true });
+  });
+
+  it('asks for a new recording without submitting the Answer when the submission is invalid', async () => {
     const formData = answer();
     formData.delete('audio');
 
     expect(await submitAnswerAction(formData)).toEqual({
       error: "We couldn't send that recording. Please record your answer again.",
     });
-    expect(checkAnswer).not.toHaveBeenCalled();
+    expect(submitAnswer).not.toHaveBeenCalled();
   });
 
   it.each([
+    ['not_heard', "We couldn't hear you. Please record your answer again."],
     ['not_found', "We couldn't find this interview."],
     ['not_in_progress', 'This interview is no longer in progress.'],
     [
@@ -59,7 +67,7 @@ describe('submitAnswerAction', () => {
       'This question isn’t the current one any more. Please reload the page.',
     ],
   ])('explains a rejection for %s and logs it', async (reason, error) => {
-    checkAnswer.mockResolvedValue(reason);
+    submitAnswer.mockResolvedValue(reason);
 
     expect(await submitAnswerAction(answer())).toEqual({ error });
     expect(logger.warn).toHaveBeenCalledWith('Answer rejected', {
@@ -69,9 +77,9 @@ describe('submitAnswerAction', () => {
     });
   });
 
-  it('asks the User to try again and logs the failure when checking the Answer throws', async () => {
+  it('asks the User to try again and logs the failure when submitting the Answer throws', async () => {
     const failure = new Error('Database unavailable');
-    checkAnswer.mockRejectedValue(failure);
+    submitAnswer.mockRejectedValue(failure);
 
     expect(await submitAnswerAction(answer())).toEqual({
       error: "We couldn't send your answer. Please try again.",

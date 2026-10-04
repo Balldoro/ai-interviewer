@@ -75,3 +75,20 @@ export const interviewQuestions = pgTable(
   },
   (table) => [unique().on(table.interviewId, table.position)],
 ).enableRLS();
+
+// Only the transcript of what the User said is kept; the recorded audio never is.
+export const answers = pgTable(
+  'answers',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    interviewQuestionId: uuid('interview_question_id')
+      .notNull()
+      .references(() => interviewQuestions.id, { onDelete: 'cascade' }),
+    // 0 is the Answer to the Interview Question itself; 1 and up are reserved for Follow-up
+    // Questions.
+    followUpIndex: integer('follow_up_index').notNull().default(0),
+    transcript: text('transcript').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [unique().on(table.interviewQuestionId, table.followUpIndex)],
+).enableRLS();
