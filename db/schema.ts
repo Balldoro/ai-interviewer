@@ -1,15 +1,19 @@
 // Drizzle table definitions. Add tables here, then run `pnpm db:generate` and `pnpm db:migrate`.
-import { pgEnum, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
+import { integer, pgEnum, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
 
-import { QUESTION_CATEGORIES, SENIORITY_LEVELS } from '../modules/setup/lib/constants';
+import { CATEGORIES, QUESTION_CATEGORIES, SENIORITY_LEVELS } from '../modules/setup/lib/constants';
 
 // Derived from the Interview Setup values so the two can't drift apart.
 export const categoryEnum = pgEnum('category', QUESTION_CATEGORIES);
 // Declaration order gives junior < mid < senior.
 export const seniorityLevelEnum = pgEnum('seniority_level', SENIORITY_LEVELS);
-
-// Every table enables RLS with no policies, so Supabase's Data API can't reach it even if it's
-// turned on. The app connects as the tables' owner, which RLS doesn't apply to.
+// An Interview's Category can also be Mixed, which no Question belongs to.
+export const interviewCategoryEnum = pgEnum('interview_category', CATEGORIES);
+export const interviewStatusEnum = pgEnum('interview_status', [
+  'in_progress',
+  'completed',
+  'abandoned',
+]);
 
 // Seeded from the question files by `pnpm db:seed` (see docs/adr/0001); don't edit by hand.
 export const questions = pgTable('questions', {
@@ -42,3 +46,32 @@ export const users = pgTable('users', {
   id: uuid('id').primaryKey(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }).enableRLS();
+
+export const interviews = pgTable('interviews', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  seniorityLevel: seniorityLevelEnum('seniority_level').notNull(),
+  category: interviewCategoryEnum('category').notNull(),
+  questionCount: integer('question_count').notNull(),
+  status: interviewStatusEnum('status').notNull().default('in_progress'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  finishedAt: timestamp('finished_at', { withTimezone: true }),
+}).enableRLS();
+
+export const interviewQuestions = pgTable(
+  'interview_questions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    interviewId: uuid('interview_id')
+      .notNull()
+      .references(() => interviews.id, { onDelete: 'cascade' }),
+    position: integer('position').notNull(),
+    questionId: text('question_id').references(() => questions.id, { onDelete: 'set null' }),
+    // The Variant's override if it has one, otherwise the Question's default.
+    questionText: text('question_text').notNull(),
+    keyPoints: text('key_points').array().notNull(),
+  },
+  (table) => [unique().on(table.interviewId, table.position)],
+).enableRLS();

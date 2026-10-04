@@ -15,7 +15,8 @@
           "./env",
           "./load-env",
           "../load-env",
-          "@testing-library/jest-dom/vitest"
+          "@testing-library/jest-dom/vitest",
+          "server-only"
         ]
       }
     ]

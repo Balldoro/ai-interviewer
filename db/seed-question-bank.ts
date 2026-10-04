@@ -47,7 +47,7 @@ const questionFileSchema = z.object({
 
 type Question = z.infer<typeof questionFileSchema> & { explanation: string };
 
-// Accepts any Drizzle Postgres database: node-postgres in the app, PGlite in tests.
+// Accepts any Drizzle Postgres database: node-postgres in the seed script, PGlite in tests.
 type Database = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
 
 export type Counts = { created: number; updated: number; deleted: number };

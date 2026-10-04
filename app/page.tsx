@@ -1,16 +1,6 @@
-import { logger } from '@/lib/logger';
 import { requireUserId } from '@/modules/auth/lib/user';
 import { SignOutButton } from '@/modules/auth/components/sign-out-button';
 import { SetupForm } from '@/modules/setup/components/setup-form/setup-form';
-import { parseInterviewSetup } from '@/modules/setup/lib/schema';
-
-async function logInterviewSetup(formData: FormData) {
-  'use server';
-
-  const userId = await requireUserId();
-
-  logger.info('Interview Setup submitted', { userId, setup: parseInterviewSetup(formData) });
-}
 
 export default async function Home() {
   await requireUserId();
@@ -28,7 +18,7 @@ export default async function Home() {
           Choose the level you want to practise at, then start your frontend interview.
         </p>
       </header>
-      <SetupForm onSubmitAction={logInterviewSetup} />
+      <SetupForm />
     </main>
   );
 }

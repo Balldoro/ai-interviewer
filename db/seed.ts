@@ -29,7 +29,6 @@ async function main() {
 }
 
 main().catch((error: unknown) => {
-  // Some errors (e.g. a refused connection) have an empty message, so fall back to the whole error.
   console.error(error instanceof Error && error.message ? error.message : error);
   process.exit(1);
 });

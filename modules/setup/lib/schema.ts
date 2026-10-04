@@ -23,5 +23,5 @@ const interviewSetupSchema = z.object({
 export type InterviewSetup = z.infer<typeof interviewSetupSchema>;
 
 export function parseInterviewSetup(formData: FormData) {
-  return interviewSetupSchema.parse(Object.fromEntries(formData));
+  return interviewSetupSchema.safeParse(Object.fromEntries(formData));
 }

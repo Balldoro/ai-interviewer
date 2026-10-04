@@ -1,9 +1,7 @@
 // @vitest-environment node
-import { PGlite } from '@electric-sql/pglite';
-import { drizzle } from 'drizzle-orm/pglite';
-import { migrate } from 'drizzle-orm/pglite/migrator';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { db } from '@/db';
 import { users } from '@/db/schema';
 
 import { getUserId, recordUser, requireUserId } from './user';
@@ -80,30 +78,17 @@ describe('requireUserId', () => {
 describe('recordUser', () => {
   const USER_ID = '6f1c2b0e-8a4d-4f3a-9a57-2d0c1e5b7f90';
 
-  let client: PGlite;
-  let db: ReturnType<typeof drizzle>;
-
-  beforeEach(async () => {
-    client = new PGlite();
-    db = drizzle({ client });
-    await migrate(db, { migrationsFolder: 'drizzle' });
-  });
-
-  afterEach(async () => {
-    await client.close();
-  });
-
   it('creates a row for a User signing in for the first time', async () => {
-    await recordUser(db, USER_ID);
+    await recordUser(USER_ID);
 
     await expect(db.select({ id: users.id }).from(users)).resolves.toEqual([{ id: USER_ID }]);
   });
 
   it('leaves the existing row alone when the User signs in again', async () => {
-    await recordUser(db, USER_ID);
+    await recordUser(USER_ID);
     const [first] = await db.select().from(users);
 
-    await recordUser(db, USER_ID);
+    await recordUser(USER_ID);
 
     await expect(db.select().from(users)).resolves.toEqual([first]);
   });
