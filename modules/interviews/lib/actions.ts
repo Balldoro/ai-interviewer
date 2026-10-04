@@ -9,7 +9,12 @@ import { parseInterviewSetup } from '@/modules/setup/lib/schema';
 
 import { elevenLabsVoice } from './elevenlabs-voice';
 import { parseAnswerSubmission } from './schema';
-import { startInterview, submitAnswer, type AnswerOutcome } from './service';
+import {
+  startInterview,
+  submitAnswer,
+  TranscriptionFailedError,
+  type AnswerOutcome,
+} from './service';
 
 export type StartInterviewState = { error: string } | null;
 
@@ -70,10 +75,19 @@ export async function submitAnswerAction(formData: FormData): Promise<SubmitAnsw
     });
 
     if (outcome !== 'stored' && outcome !== 'already_answered') {
-      logger.warn('Answer rejected', { interviewId, position, reason: outcome });
+      // Silence is an ordinary mistake rather than something worth looking into.
+      if (outcome !== 'not_heard') {
+        logger.warn('Answer rejected', { interviewId, position, reason: outcome });
+      }
       return { error: ANSWER_REJECTED_ERRORS[outcome] };
     }
   } catch (error) {
+    if (error instanceof TranscriptionFailedError) {
+      logger.error('Transcribing the Answer failed', error.cause, { interviewId, position });
+      // The recording is fine, so the User can send the same one again.
+      return { error: "We couldn't process your answer. Please try submitting it again." };
+    }
+
     logger.error('Submitting the Answer failed', error, { interviewId, position });
     return { error: "We couldn't send your answer. Please try again." };
   }

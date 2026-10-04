@@ -5,7 +5,6 @@ import * as z from 'zod';
 
 import { db } from '@/db';
 import { answers, interviewQuestions, interviews, questions, questionVariants } from '@/db/schema';
-import { logger } from '@/lib/logger';
 import { shuffle } from '@/lib/utils';
 import { QUESTION_CATEGORIES, type QuestionCategory } from '@/modules/setup/lib/constants';
 import type { InterviewSetup } from '@/modules/setup/lib/schema';
@@ -25,6 +24,9 @@ export type AnswerOutcome =
   | 'not_found'
   | 'not_in_progress'
   | 'not_current_question';
+
+// The speech service failed, as opposed to the recording holding no speech (`not_heard`).
+export class TranscriptionFailedError extends Error {}
 
 export interface InterviewParams {
   userId: string;
@@ -114,7 +116,8 @@ export async function getInterviewStep({
 /**
  * Transcribes the recording and stores the text as the Answer to the current Interview Question.
  * The audio itself is never stored. Nothing is stored when the Interview Question already has an
- * Answer, or when the recording can't be transcribed or holds no speech.
+ * Answer or the recording holds no speech, and nothing is stored when the speech service fails, in
+ * which case it throws `TranscriptionFailedError`.
  */
 export async function submitAnswer({
   voice,
@@ -134,8 +137,7 @@ export async function submitAnswer({
   try {
     transcript = (await voice.transcribe(audio)).trim();
   } catch (error) {
-    logger.error('Transcribing the Answer failed', error, { interviewId, position });
-    return 'not_heard';
+    throw new TranscriptionFailedError('Transcribing the Answer failed', { cause: error });
   }
 
   if (!transcript) return 'not_heard';
@@ -150,7 +152,8 @@ export async function submitAnswer({
   return stored.length > 0 ? 'stored' : 'already_answered';
 }
 
-// Until Answers are stored, the current Interview Question is always the first one.
+// Until the Interview moves on after an Answer, the current Interview Question is always the first
+// one.
 async function findCurrentStep({ userId, interviewId }: InterviewParams) {
   if (!z.uuid().safeParse(interviewId).success) return null;
 

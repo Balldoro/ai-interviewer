@@ -6,14 +6,15 @@ import { submitAnswerAction } from './actions';
 const USER_ID = '00000000-0000-4000-8000-000000000001';
 const INTERVIEW_ID = '00000000-0000-4000-8000-000000000002';
 
-const { submitAnswer, logger } = vi.hoisted(() => ({
+const { submitAnswer, logger, TranscriptionFailedError } = vi.hoisted(() => ({
   submitAnswer: vi.fn(),
+  TranscriptionFailedError: class extends Error {},
   logger: { warn: vi.fn(), error: vi.fn() },
 }));
 
 vi.mock('@/modules/auth/lib/user', () => ({ requireUserId: async () => USER_ID }));
 vi.mock('@/lib/logger', () => ({ logger }));
-vi.mock('./service', () => ({ submitAnswer, startInterview: vi.fn() }));
+vi.mock('./service', () => ({ submitAnswer, startInterview: vi.fn(), TranscriptionFailedError }));
 vi.mock('./elevenlabs-voice', () => ({ elevenLabsVoice: { transcribe: vi.fn() } }));
 
 function answer(fields: Partial<Record<'interviewId' | 'position', string>> = {}) {
@@ -58,8 +59,31 @@ describe('submitAnswerAction', () => {
     expect(submitAnswer).not.toHaveBeenCalled();
   });
 
+  it('asks for a new recording without logging when the User couldn’t be heard', async () => {
+    submitAnswer.mockResolvedValue('not_heard');
+
+    expect(await submitAnswerAction(answer())).toEqual({
+      error: "We couldn't hear you. Please record your answer again.",
+    });
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('asks the User to submit the same recording again and logs it when transcription fails', async () => {
+    const failure = new Error('Speech-to-text unavailable');
+    submitAnswer.mockRejectedValue(
+      new TranscriptionFailedError('Transcribing the Answer failed', { cause: failure }),
+    );
+
+    expect(await submitAnswerAction(answer())).toEqual({
+      error: "We couldn't process your answer. Please try submitting it again.",
+    });
+    expect(logger.error).toHaveBeenCalledWith('Transcribing the Answer failed', failure, {
+      interviewId: INTERVIEW_ID,
+      position: 1,
+    });
+  });
+
   it.each([
-    ['not_heard', "We couldn't hear you. Please record your answer again."],
     ['not_found', "We couldn't find this interview."],
     ['not_in_progress', 'This interview is no longer in progress.'],
     [

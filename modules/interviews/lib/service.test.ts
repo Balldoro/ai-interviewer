@@ -20,15 +20,16 @@ import { seedQuestionBank } from '@/db/seed-question-bank';
 import type { QuestionCategory, SeniorityLevel } from '@/modules/setup/lib/constants';
 import type { InterviewSetup } from '@/modules/setup/lib/schema';
 
-import { getInterviewStep, startInterview, submitAnswer } from './service';
+import {
+  getInterviewStep,
+  startInterview,
+  submitAnswer,
+  TranscriptionFailedError,
+} from './service';
 import type { Voice } from './voice';
 
 const USER_ID = '00000000-0000-4000-8000-000000000001';
 const OTHER_USER_ID = '00000000-0000-4000-8000-000000000002';
-
-const { logger } = vi.hoisted(() => ({ logger: { error: vi.fn() } }));
-
-vi.mock('@/lib/logger', () => ({ logger }));
 
 beforeEach(async () => {
   await db.insert(users).values([{ id: USER_ID }, { id: OTHER_USER_ID }]);
@@ -370,7 +371,7 @@ describe('submitAnswer', () => {
     expect(await storedAnswers()).toEqual([]);
   });
 
-  it('stores nothing and logs the failure when transcription fails', async () => {
+  it('stores nothing and says so when the speech service fails', async () => {
     const id = await start();
     const failure = new Error('Speech-to-text unavailable');
 
@@ -378,12 +379,11 @@ describe('submitAnswer', () => {
       throw failure;
     });
 
-    expect(await submit({ interviewId: id, voice })).toBe('not_heard');
+    const submitted = submit({ interviewId: id, voice });
+
+    await expect(submitted).rejects.toThrow(TranscriptionFailedError);
+    await expect(submitted).rejects.toMatchObject({ cause: failure });
     expect(await storedAnswers()).toEqual([]);
-    expect(logger.error).toHaveBeenCalledWith('Transcribing the Answer failed', failure, {
-      interviewId: id,
-      position: 1,
-    });
   });
 
   it('lets the User answer again after a recording that couldn’t be heard', async () => {
