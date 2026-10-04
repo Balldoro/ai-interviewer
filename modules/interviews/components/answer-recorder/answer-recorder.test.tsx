@@ -307,6 +307,28 @@ describe('AnswerRecorder', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
+  it('asks the User to record again when they couldn’t be heard, and sends the new recording', async () => {
+    submitAnswerAction.mockResolvedValueOnce({
+      error: "We couldn't hear you. Please record your answer again.",
+    });
+    const { user } = renderRecorder();
+
+    await record(user);
+    await user.click(screen.getByRole('button', { name: 'Submit answer' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      "We couldn't hear you. Please record your answer again.",
+    );
+
+    await discard(user);
+    await record(user);
+    submitAnswerAction.mockClear();
+    await user.click(screen.getByRole('button', { name: 'Submit answer' }));
+
+    expect((await submittedFields()).audio.text).toBe('take 2');
+    expect(await screen.findByRole('status')).toHaveTextContent('Your answer was sent.');
+  });
+
   it('clears the error of a failed submission when its recording is discarded', async () => {
     submitAnswerAction.mockResolvedValue({ error: 'This interview is no longer in progress.' });
     const { user } = renderRecorder();

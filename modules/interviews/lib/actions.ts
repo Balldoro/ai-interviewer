@@ -7,14 +7,19 @@ import { ROUTES } from '@/lib/routes';
 import { requireUserId } from '@/modules/auth/lib/user';
 import { parseInterviewSetup } from '@/modules/setup/lib/schema';
 
+import { elevenLabsVoice } from './elevenlabs-voice';
 import { parseAnswerSubmission } from './schema';
-import { checkAnswer, startInterview, type AnswerCheck } from './service';
+import { startInterview, submitAnswer, type AnswerOutcome } from './service';
 
 export type StartInterviewState = { error: string } | null;
 
 export type SubmitAnswerResult = { received: true } | { error: string };
 
-const ANSWER_REJECTED_ERRORS: Record<Exclude<AnswerCheck, 'accepted'>, string> = {
+const ANSWER_REJECTED_ERRORS: Record<
+  Exclude<AnswerOutcome, 'stored' | 'already_answered'>,
+  string
+> = {
+  not_heard: "We couldn't hear you. Please record your answer again.",
   not_found: "We couldn't find this interview.",
   not_in_progress: 'This interview is no longer in progress.',
   not_current_question: 'This question isn’t the current one any more. Please reload the page.',
@@ -44,7 +49,7 @@ export async function startInterviewAction(
   redirect(ROUTES.interview(interviewId));
 }
 
-// Only checks the Answer for now; storing it and moving the Interview on come later.
+// Only stores the Answer for now; moving the Interview on comes later.
 export async function submitAnswerAction(formData: FormData): Promise<SubmitAnswerResult> {
   const userId = await requireUserId();
   const parsed = parseAnswerSubmission(formData);
@@ -53,14 +58,20 @@ export async function submitAnswerAction(formData: FormData): Promise<SubmitAnsw
     return { error: "We couldn't send that recording. Please record your answer again." };
   }
 
-  const { interviewId, position } = parsed.data;
+  const { interviewId, position, audio } = parsed.data;
 
   try {
-    const check = await checkAnswer({ userId, interviewId, position });
+    const outcome = await submitAnswer({
+      voice: elevenLabsVoice,
+      userId,
+      interviewId,
+      position,
+      audio,
+    });
 
-    if (check !== 'accepted') {
-      logger.warn('Answer rejected', { interviewId, position, reason: check });
-      return { error: ANSWER_REJECTED_ERRORS[check] };
+    if (outcome !== 'stored' && outcome !== 'already_answered') {
+      logger.warn('Answer rejected', { interviewId, position, reason: outcome });
+      return { error: ANSWER_REJECTED_ERRORS[outcome] };
     }
   } catch (error) {
     logger.error('Submitting the Answer failed', error, { interviewId, position });

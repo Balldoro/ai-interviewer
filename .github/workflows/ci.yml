@@ -17,10 +17,12 @@ jobs:
     name: Lint, format, typecheck, test & build
     runs-on: ubuntu-latest
     env:
-      # env.ts validates these at build time; CI never connects to the database or Supabase.
+      # env.ts validates these at build time; CI never connects to the database, Supabase or
+      # ElevenLabs.
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ai_interviewer
       NEXT_PUBLIC_SUPABASE_URL: https://ci.supabase.co
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci
+      ELEVENLABS_API_KEY: sk_ci
     steps:
       - uses: actions/checkout@v6
 
