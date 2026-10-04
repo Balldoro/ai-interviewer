@@ -13,7 +13,7 @@ import { seedQuestionBank } from '@/db/seed-question-bank';
 import type { QuestionCategory, SeniorityLevel } from '@/modules/setup/lib/constants';
 import type { InterviewSetup } from '@/modules/setup/lib/schema';
 
-import { getInterviewStep, startInterview } from './service';
+import { checkAnswer, getInterviewStep, startInterview } from './service';
 
 const USER_ID = '00000000-0000-4000-8000-000000000001';
 const OTHER_USER_ID = '00000000-0000-4000-8000-000000000002';
@@ -52,11 +52,9 @@ async function insertQuestions(category: QuestionCategory, count: number) {
 }
 
 function start(setup: Partial<InterviewSetup> = {}, userId = USER_ID) {
-  return startInterview(userId, {
-    seniorityLevel: 'mid',
-    category: 'javascript',
-    questionCount: 5,
-    ...setup,
+  return startInterview({
+    userId,
+    setup: { seniorityLevel: 'mid', category: 'javascript', questionCount: 5, ...setup },
   });
 }
 
@@ -246,7 +244,7 @@ describe('getInterviewStep', () => {
     const id = await start();
     const [first] = await storedInterviewQuestions(id);
 
-    expect(await getInterviewStep(USER_ID, id)).toEqual({
+    expect(await getInterviewStep({ userId: USER_ID, interviewId: id })).toEqual({
       position: 1,
       questionCount: 5,
       questionText: first.questionText,
@@ -256,16 +254,16 @@ describe('getInterviewStep', () => {
   it('shows the same Interview Question when loaded again', async () => {
     const id = await start();
 
-    const step = await getInterviewStep(USER_ID, id);
+    const step = await getInterviewStep({ userId: USER_ID, interviewId: id });
 
-    expect(await getInterviewStep(USER_ID, id)).toEqual(step);
+    expect(await getInterviewStep({ userId: USER_ID, interviewId: id })).toEqual(step);
   });
 
   it('never contains Key Points, the Explanation or any other Interview Question', async () => {
     const id = await start();
     const [, ...others] = await storedInterviewQuestions(id);
 
-    const step = JSON.stringify(await getInterviewStep(USER_ID, id));
+    const step = JSON.stringify(await getInterviewStep({ userId: USER_ID, interviewId: id }));
 
     expect(step).not.toMatch(/key point|explanation/);
     for (const other of others) expect(step).not.toContain(other.questionText);
@@ -274,13 +272,61 @@ describe('getInterviewStep', () => {
   it('treats another User’s Interview as not found', async () => {
     const id = await start({}, OTHER_USER_ID);
 
-    expect(await getInterviewStep(USER_ID, id)).toBeNull();
+    expect(await getInterviewStep({ userId: USER_ID, interviewId: id })).toBeNull();
   });
 
   it.each(['00000000-0000-4000-8000-000000000099', 'not-a-uuid'])(
     'treats an unknown Interview id as not found: %s',
     async (interviewId) => {
-      expect(await getInterviewStep(USER_ID, interviewId)).toBeNull();
+      expect(await getInterviewStep({ userId: USER_ID, interviewId })).toBeNull();
+    },
+  );
+});
+
+describe('checkAnswer', () => {
+  beforeEach(async () => {
+    await insertQuestions('javascript', 5);
+  });
+
+  it('accepts an Answer to the current Interview Question', async () => {
+    const id = await start();
+
+    expect(await checkAnswer({ userId: USER_ID, interviewId: id, position: 1 })).toBe('accepted');
+  });
+
+  it.each([0, 2, 5, 6])(
+    'rejects an Answer at position %i, which isn’t the current one',
+    async (position) => {
+      const id = await start();
+
+      expect(await checkAnswer({ userId: USER_ID, interviewId: id, position })).toBe(
+        'not_current_question',
+      );
+    },
+  );
+
+  it('treats another User’s Interview as not found', async () => {
+    const id = await start({}, OTHER_USER_ID);
+
+    expect(await checkAnswer({ userId: USER_ID, interviewId: id, position: 1 })).toBe('not_found');
+  });
+
+  it.each(['00000000-0000-4000-8000-000000000099', 'not-a-uuid'])(
+    'treats an unknown Interview id as not found: %s',
+    async (interviewId) => {
+      expect(await checkAnswer({ userId: USER_ID, interviewId, position: 1 })).toBe('not_found');
+    },
+  );
+
+  it.each(['completed', 'abandoned'] as const)(
+    'rejects an Answer to an Interview that is %s',
+    async (status) => {
+      const id = await start();
+      await db.update(interviews).set({ status }).where(eq(interviews.id, id));
+
+      expect(await checkAnswer({ userId: USER_ID, interviewId: id, position: 1 })).toBe(
+        'not_in_progress',
+      );
     },
   );
 });
