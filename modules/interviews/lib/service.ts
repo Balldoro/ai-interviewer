@@ -15,7 +15,23 @@ export type InterviewStep = {
   questionText: string;
 };
 
-export async function startInterview(userId: string, setup: InterviewSetup): Promise<string> {
+export type AnswerCheck = 'accepted' | 'not_found' | 'not_in_progress' | 'not_current_question';
+
+export interface InterviewParams {
+  userId: string;
+  interviewId: string;
+}
+
+export interface AnswerParams extends InterviewParams {
+  position: number;
+}
+
+export interface StartInterviewParams {
+  userId: string;
+  setup: InterviewSetup;
+}
+
+export async function startInterview({ userId, setup }: StartInterviewParams): Promise<string> {
   return db.transaction(async (tx) => {
     const eligible = await tx
       .select({
@@ -72,10 +88,34 @@ export async function startInterview(userId: string, setup: InterviewSetup): Pro
  * The User's current step in an Interview, or null when the Interview doesn't exist or belongs to
  * someone else. It never contains Key Points or any other Interview Question.
  */
-export async function getInterviewStep(
-  userId: string,
-  interviewId: string,
-): Promise<InterviewStep | null> {
+export async function getInterviewStep({
+  userId,
+  interviewId,
+}: InterviewParams): Promise<InterviewStep | null> {
+  const current = await findCurrentStep({ userId, interviewId });
+
+  if (!current) return null;
+
+  const { status: _status, ...step } = current;
+  return step;
+}
+
+export async function checkAnswer({
+  userId,
+  interviewId,
+  position,
+}: AnswerParams): Promise<AnswerCheck> {
+  const current = await findCurrentStep({ userId, interviewId });
+
+  if (!current) return 'not_found';
+  if (current.status !== 'in_progress') return 'not_in_progress';
+  if (current.position !== position) return 'not_current_question';
+
+  return 'accepted';
+}
+
+// Until Answers are stored, the current Interview Question is always the first one.
+async function findCurrentStep({ userId, interviewId }: InterviewParams) {
   if (!z.uuid().safeParse(interviewId).success) return null;
 
   const [step] = await db
@@ -83,6 +123,7 @@ export async function getInterviewStep(
       position: interviewQuestions.position,
       questionCount: interviews.questionCount,
       questionText: interviewQuestions.questionText,
+      status: interviews.status,
     })
     .from(interviews)
     .innerJoin(interviewQuestions, eq(interviewQuestions.interviewId, interviews.id))

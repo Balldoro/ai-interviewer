@@ -3,6 +3,7 @@
 import { MinusIcon, PlusIcon } from 'lucide-react';
 import { useId } from 'react';
 
+import { ErrorMessage } from '@/components/error-message';
 import { RadioFieldSet } from '@/components/radio-field-set';
 import { Button } from '@/components/ui/button';
 import { Field, FieldTitle } from '@/components/ui/field';
@@ -89,11 +90,7 @@ export function SetupForm() {
       <Button type="submit" size="lg" disabled={isPending} className="self-stretch sm:self-center">
         Start interview
       </Button>
-      {error && (
-        <p role="alert" className="text-sm text-destructive sm:text-center">
-          {error}
-        </p>
-      )}
+      {error && <ErrorMessage className="sm:text-center">{error}</ErrorMessage>}
     </form>
   );
 }
