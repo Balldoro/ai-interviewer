@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -67,6 +67,17 @@ function renderRecorder() {
   const user = userEvent.setup();
   render(<AnswerRecorder interviewId={INTERVIEW_ID} position={1} />);
   return { user };
+}
+
+// For tests that use fake timers, so that user-event's delays advance them.
+function renderRecorderWithFakeTimers() {
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  render(<AnswerRecorder interviewId={INTERVIEW_ID} position={1} />);
+  return { user };
+}
+
+function advanceSeconds(seconds: number) {
+  act(() => vi.advanceTimersByTime(seconds * 1000));
 }
 
 async function record(user: ReturnType<typeof userEvent.setup>) {
@@ -181,6 +192,73 @@ describe('AnswerRecorder', () => {
 
     await user.click(screen.getByRole('button', { name: 'Submit answer' }));
     expect((await submittedFields()).audio.text).toBe('take 1');
+  });
+
+  describe('with fake timers', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('shows how long the User has been recording against the limit', async () => {
+      const { user } = renderRecorderWithFakeTimers();
+
+      expect(screen.queryByRole('timer')).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Start recording' }));
+      const timer = await screen.findByRole('timer', { name: 'Recording time' });
+      expect(timer).toHaveTextContent('0:00 / 3:00');
+
+      advanceSeconds(84);
+      expect(timer).toHaveTextContent('1:24 / 3:00');
+      const [elapsed, limit] = within(timer).getAllByRole('time');
+      expect(elapsed).toHaveAttribute('datetime', 'PT1M24S');
+      expect(limit).toHaveAttribute('datetime', 'PT3M0S');
+
+      await user.click(screen.getByRole('button', { name: 'Stop recording' }));
+      expect(screen.queryByRole('timer')).not.toBeInTheDocument();
+    });
+
+    it('stops recording at the limit, and the recording can be submitted', async () => {
+      const { user } = renderRecorderWithFakeTimers();
+
+      await user.click(screen.getByRole('button', { name: 'Start recording' }));
+      const timer = await screen.findByRole('timer');
+
+      advanceSeconds(179);
+      expect(timer).toHaveTextContent('2:59 / 3:00');
+      expect(screen.getByRole('button', { name: 'Stop recording' })).toBeInTheDocument();
+
+      advanceSeconds(1);
+      expect(screen.queryByRole('timer')).not.toBeInTheDocument();
+      expect(screen.getByRole('status')).toHaveTextContent('Your answer is recorded.');
+      expect(track.stop).toHaveBeenCalled();
+
+      await user.click(screen.getByRole('button', { name: 'Submit answer' }));
+      expect((await submittedFields()).audio.text).toBe('take 1');
+    });
+
+    it('lets the User record again after the limit, counting from zero', async () => {
+      const { user } = renderRecorderWithFakeTimers();
+
+      await user.click(screen.getByRole('button', { name: 'Start recording' }));
+      await screen.findByRole('timer');
+      advanceSeconds(180);
+
+      await discard(user);
+      await user.click(screen.getByRole('button', { name: 'Start recording' }));
+
+      expect(await screen.findByRole('timer')).toHaveTextContent('0:00 / 3:00');
+      advanceSeconds(5);
+      expect(screen.getByRole('timer')).toHaveTextContent('0:05 / 3:00');
+
+      await user.click(screen.getByRole('button', { name: 'Stop recording' }));
+      await user.click(screen.getByRole('button', { name: 'Submit answer' }));
+      expect((await submittedFields()).audio.text).toBe('take 2');
+    });
   });
 
   it('disables submitting while the Answer is being sent', async () => {

@@ -2,10 +2,9 @@ import type { AnswerSubmissionStatus, AudioRecorderStatus, MicrophoneError } fro
 
 export const MIME_TYPES = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4'];
 export const AUDIO_BITS_PER_SECOND = 32_000;
+export const MAX_RECORDING_SECONDS = 3 * 60;
 
-// The containers `MIME_TYPES` record into, without codec parameters.
 export const AUDIO_TYPES = ['audio/webm', 'audio/ogg', 'audio/mp4'];
-// Matches the Server Action `bodySizeLimit` in next.config.ts.
 export const MAX_AUDIO_BYTES = 2 * 1024 * 1024;
 
 export const MICROPHONE_ERRORS: Record<MicrophoneError, string> = {

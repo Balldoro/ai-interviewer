@@ -2,8 +2,10 @@
 
 import { ErrorMessage } from '@/components/error-message';
 import { Button } from '@/components/ui/button';
+import { MAX_RECORDING_SECONDS } from '../../lib/constants';
 import { DiscardRecordingDialog } from './discard-recording-dialog';
 import { RecordingButton } from './recording-button';
+import { RecordingTimer } from './recording-timer/recording-timer';
 import { useAnswerRecorder } from './use-answer-recorder';
 
 interface AnswerRecorderProps {
@@ -21,6 +23,7 @@ export function AnswerRecorder({ interviewId, position }: AnswerRecorderProps) {
     isDiscardDialogOpen,
     setIsDiscardDialogOpen,
     clickRecordingButton,
+    stopRecording,
     confirmDiscard,
     submitAnswer,
   } = useAnswerRecorder({ interviewId, position });
@@ -37,12 +40,14 @@ export function AnswerRecorder({ interviewId, position }: AnswerRecorderProps) {
           Submit answer
         </Button>
       </div>
-      {/* One slot for the status and the error, sized to a line so neither shifts the layout. */}
-      <div className="min-h-5">
+      <div className="flex min-h-5 justify-between gap-4">
         {errorMessage ? (
           <ErrorMessage>{errorMessage}</ErrorMessage>
         ) : (
           <output className="text-sm text-muted-foreground">{statusMessage}</output>
+        )}
+        {recording.status === 'recording' && (
+          <RecordingTimer maxSeconds={MAX_RECORDING_SECONDS} onLimitReach={stopRecording} />
         )}
       </div>
       <DiscardRecordingDialog
