@@ -11,12 +11,17 @@ interface QuestionAudioProps {
 }
 
 export function QuestionAudio({ src }: QuestionAudioProps) {
-  const { replay } = useQuestionAudio(src);
+  const { isBlocked, replay } = useQuestionAudio(src);
 
   return (
-    <Button type="button" variant="outline" className="self-start" onClick={replay}>
+    <Button
+      type="button"
+      variant={isBlocked ? 'default' : 'outline'}
+      className="self-start"
+      onClick={replay}
+    >
       <Volume2Icon aria-hidden />
-      Replay question
+      {isBlocked ? 'Play question' : 'Replay question'}
     </Button>
   );
 }

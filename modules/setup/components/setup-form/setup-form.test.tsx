@@ -8,6 +8,10 @@ const { startInterviewAction } = vi.hoisted(() => ({ startInterviewAction: vi.fn
 
 vi.mock('@/modules/interviews/lib/actions', () => ({ startInterviewAction }));
 
+const { unlockQuestionAudio } = vi.hoisted(() => ({ unlockQuestionAudio: vi.fn() }));
+
+vi.mock('@/modules/interviews/lib/question-audio-player', () => ({ unlockQuestionAudio }));
+
 function renderForm() {
   const user = userEvent.setup();
   render(<SetupForm />);
@@ -29,6 +33,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   startInterviewAction.mockReset();
+  unlockQuestionAudio.mockReset();
 });
 
 // The value bubble that trails the slider thumb is aria-hidden; the slider itself announces its value.
@@ -59,6 +64,14 @@ describe('SetupForm', () => {
       category: 'mixed',
       questionCount: '5',
     });
+  });
+
+  it('unlocks audio on start, so the first Interview Question can speak by itself', async () => {
+    const { user } = renderForm();
+
+    await user.click(screen.getByRole('button', { name: 'Start interview' }));
+
+    expect(unlockQuestionAudio).toHaveBeenCalledOnce();
   });
 
   it('submits the chosen Seniority Level', async () => {

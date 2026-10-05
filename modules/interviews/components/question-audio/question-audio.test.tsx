@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { unlockQuestionAudio } from '../../lib/question-audio-player';
 import { QuestionAudio } from './question-audio';
 
 const SRC = 'data:audio/mpeg;base64,c3BlZWNo';
@@ -62,15 +63,24 @@ describe('QuestionAudio', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('keeps the replay control working when the browser blocks autoplay', async () => {
+  it('asks the User to press play when the browser blocks autoplay', async () => {
     play.mockRejectedValueOnce(new DOMException('Autoplay blocked', 'NotAllowedError'));
     const user = userEvent.setup();
     render(<QuestionAudio src={SRC} />);
 
-    await user.click(screen.getByRole('button', { name: 'Replay question' }));
+    await user.click(await screen.findByRole('button', { name: 'Play question' }));
 
-    expect(play).toHaveBeenCalledTimes(2);
+    expect(plays).toEqual([{ src: SRC, currentTime: 0 }]);
+    expect(await screen.findByRole('button', { name: 'Replay question' })).toBeInTheDocument();
     expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it('plays on the audio element unlocked when the Interview was started', () => {
+    unlockQuestionAudio();
+    render(<QuestionAudio src={SRC} />);
+
+    expect(plays.map(({ src }) => src)).toEqual([expect.stringMatching(/^data:audio\/wav/), SRC]);
+    expect(play.mock.contexts[1]).toBe(play.mock.contexts[0]);
   });
 
   it('logs audio that can’t be played', async () => {
