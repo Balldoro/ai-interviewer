@@ -91,6 +91,14 @@ async function storedAnswers() {
   return db.select().from(answers);
 }
 
+async function interviewStatus(interviewId: string) {
+  const [interview] = await db
+    .select({ status: interviews.status, finishedAt: interviews.finishedAt })
+    .from(interviews)
+    .where(eq(interviews.id, interviewId));
+  return interview;
+}
+
 const SPEECH = new Blob(['speech'], { type: 'audio/mpeg' });
 
 function fakeVoice({
@@ -102,6 +110,25 @@ function fakeVoice({
 
 function step(interviewId: string, voice: Voice = fakeVoice()) {
   return getInterviewStep({ voice, userId: USER_ID, interviewId });
+}
+
+const audio = new Blob(['audio'], { type: 'audio/webm;codecs=opus' });
+
+function submit(params: { interviewId: string; position?: number; voice?: Voice }) {
+  return submitAnswer({
+    voice: fakeVoice(),
+    userId: USER_ID,
+    position: 1,
+    audio,
+    ...params,
+  });
+}
+
+// Answers the Interview Questions at positions 1 to `lastPosition`.
+async function answerUpTo(interviewId: string, lastPosition: number) {
+  for (let position = 1; position <= lastPosition; position++) {
+    await submit({ interviewId, position });
+  }
 }
 
 async function categoriesOf(interviewId: string) {
@@ -283,6 +310,7 @@ describe('getInterviewStep', () => {
     const [first] = await storedInterviewQuestions(id);
 
     expect(await step(id)).toEqual({
+      type: 'question',
       position: 1,
       questionCount: 5,
       questionText: first.questionText,
@@ -311,6 +339,7 @@ describe('getInterviewStep', () => {
     });
 
     expect(await step(id, voice)).toEqual({
+      type: 'question',
       position: 1,
       questionCount: 5,
       questionText: first.questionText,
@@ -339,14 +368,38 @@ describe('getInterviewStep', () => {
     expect(await step(id)).toEqual(shown);
   });
 
+  it('shows the first Interview Question without an Answer', async () => {
+    const id = await start();
+    await answerUpTo(id, 2);
+    const stored = await storedInterviewQuestions(id);
+
+    expect(await step(id)).toEqual({
+      type: 'question',
+      position: 3,
+      questionCount: 5,
+      questionText: stored[2].questionText,
+      questionAudio: `data:audio/mpeg;base64,${btoa('speech')}`,
+    });
+  });
+
+  it('shows that the Interview is completed once every Interview Question has an Answer, without speaking', async () => {
+    const id = await start();
+    await answerUpTo(id, 5);
+    const voice = fakeVoice();
+
+    expect(await step(id, voice)).toEqual({ type: 'completed' });
+    expect(voice.speak).not.toHaveBeenCalled();
+  });
+
   it('never contains Key Points, the Explanation or any other Interview Question', async () => {
     const id = await start();
-    const [, ...others] = await storedInterviewQuestions(id);
+    await answerUpTo(id, 1);
+    const stored = await storedInterviewQuestions(id);
 
     const shown = JSON.stringify(await step(id));
 
     expect(shown).not.toMatch(/key point|explanation/);
-    for (const other of others) expect(shown).not.toContain(other.questionText);
+    for (const other of stored.toSpliced(1, 1)) expect(shown).not.toContain(other.questionText);
   });
 
   it('treats another User’s Interview as not found', async () => {
@@ -364,28 +417,16 @@ describe('getInterviewStep', () => {
 });
 
 describe('submitAnswer', () => {
-  const audio = new Blob(['audio'], { type: 'audio/webm;codecs=opus' });
-
   beforeEach(async () => {
     await insertQuestions('javascript', 5);
   });
-
-  function submit(params: { interviewId: string; position?: number; voice?: Voice }) {
-    return submitAnswer({
-      voice: fakeVoice(),
-      userId: USER_ID,
-      position: 1,
-      audio,
-      ...params,
-    });
-  }
 
   it('stores the transcript as the Answer to the current Interview Question', async () => {
     const id = await start();
     const [first] = await storedInterviewQuestions(id);
     const voice = fakeVoice({ transcribe: async () => '  Closures capture variables.  ' });
 
-    expect(await submit({ interviewId: id, voice })).toBe('stored');
+    expect(await submit({ interviewId: id, voice })).toMatchObject({ outcome: 'stored' });
 
     expect(voice.transcribe).toHaveBeenCalledWith(audio);
     expect(await storedAnswers()).toEqual([
@@ -399,12 +440,82 @@ describe('submitAnswer', () => {
     ]);
   });
 
-  it('stores nothing new when the Interview Question already has an Answer', async () => {
+  it('returns the next Interview Question’s text, spoken, and its position', async () => {
     const id = await start();
-    await submit({ interviewId: id });
+    const stored = await storedInterviewQuestions(id);
+    const voice = fakeVoice();
+
+    expect(await submit({ interviewId: id, voice })).toEqual({
+      outcome: 'stored',
+      nextStep: {
+        type: 'question',
+        position: 2,
+        questionCount: 5,
+        questionText: stored[1].questionText,
+        questionAudio: `data:audio/mpeg;base64,${btoa('speech')}`,
+      },
+    });
+    expect(voice.speak).toHaveBeenCalledExactlyOnceWith(stored[1].questionText);
+  });
+
+  it('stores the Answer and returns the next Interview Question without audio when speaking it fails', async () => {
+    const id = await start();
+    const voice = fakeVoice({
+      speak: async () => {
+        throw new Error('Text-to-speech unavailable');
+      },
+    });
+
+    expect(await submit({ interviewId: id, voice })).toMatchObject({
+      outcome: 'stored',
+      nextStep: { position: 2, questionAudio: null },
+    });
+    expect(await storedAnswers()).toHaveLength(1);
+  });
+
+  it('never returns Key Points, the Explanation or any Interview Question after the next', async () => {
+    const id = await start();
+    const stored = await storedInterviewQuestions(id);
+
+    const result = JSON.stringify(await submit({ interviewId: id }));
+
+    expect(result).not.toMatch(/key point|explanation/);
+    for (const other of stored.toSpliced(1, 1)) expect(result).not.toContain(other.questionText);
+  });
+
+  it('keeps the Interview in progress until the last Interview Question has an Answer', async () => {
+    const id = await start();
+    await answerUpTo(id, 4);
+
+    expect(await interviewStatus(id)).toEqual({ status: 'in_progress', finishedAt: null });
+  });
+
+  it('completes the Interview after the Answer to the last Interview Question', async () => {
+    const id = await start();
+    await answerUpTo(id, 4);
+
+    const voice = fakeVoice();
+
+    expect(await submit({ interviewId: id, position: 5, voice })).toEqual({
+      outcome: 'stored',
+      nextStep: { type: 'completed' },
+    });
+    expect(voice.speak).not.toHaveBeenCalled();
+    expect(await interviewStatus(id)).toEqual({
+      status: 'completed',
+      finishedAt: expect.any(Date),
+    });
+  });
+
+  it('stores nothing new and returns the same next step when the Interview Question already has an Answer', async () => {
+    const id = await start();
+    const first = await submit({ interviewId: id });
     const voice = fakeVoice({ transcribe: async () => 'A second take.' });
 
-    expect(await submit({ interviewId: id, voice })).toBe('already_answered');
+    expect(await submit({ interviewId: id, voice })).toEqual({
+      ...first,
+      outcome: 'already_answered',
+    });
 
     expect(voice.transcribe).not.toHaveBeenCalled();
     expect((await storedAnswers()).map((answer) => answer.transcript)).toEqual([
@@ -412,23 +523,45 @@ describe('submitAnswer', () => {
     ]);
   });
 
+  it('returns that the Interview is completed when the last Answer is submitted again', async () => {
+    const id = await start();
+    await answerUpTo(id, 5);
+    const completed = await interviewStatus(id);
+
+    expect(await submit({ interviewId: id, position: 5 })).toEqual({
+      outcome: 'already_answered',
+      nextStep: { type: 'completed' },
+    });
+    expect(await storedAnswers()).toHaveLength(5);
+    expect(await interviewStatus(id)).toEqual(completed);
+  });
+
   it('stores one Answer when the same Answer is submitted twice at once', async () => {
     const id = await start();
 
-    const outcomes = await Promise.all([submit({ interviewId: id }), submit({ interviewId: id })]);
+    const results = await Promise.all([submit({ interviewId: id }), submit({ interviewId: id })]);
 
-    expect(outcomes.toSorted()).toEqual(['already_answered', 'stored']);
+    expect(results.map((result) => result.outcome).toSorted()).toEqual([
+      'already_answered',
+      'stored',
+    ]);
+    expect(results[0]).toMatchObject({ nextStep: { type: 'question', position: 2 } });
+    expect(results[1]).toMatchObject({ nextStep: { type: 'question', position: 2 } });
     expect(await storedAnswers()).toHaveLength(1);
   });
 
-  it.each(['', '   \n'])('stores nothing when the transcript is empty: %j', async (transcript) => {
-    const id = await start();
+  it.each(['', '   \n'])(
+    'stores nothing and doesn’t move on when the transcript is empty: %j',
+    async (transcript) => {
+      const id = await start();
 
-    const voice = fakeVoice({ transcribe: async () => transcript });
+      const voice = fakeVoice({ transcribe: async () => transcript });
 
-    expect(await submit({ interviewId: id, voice })).toBe('not_heard');
-    expect(await storedAnswers()).toEqual([]);
-  });
+      expect(await submit({ interviewId: id, voice })).toEqual({ outcome: 'not_heard' });
+      expect(await storedAnswers()).toEqual([]);
+      expect(await step(id)).toMatchObject({ position: 1 });
+    },
+  );
 
   it('stores nothing and says so when the speech service fails', async () => {
     const id = await start();
@@ -451,32 +584,46 @@ describe('submitAnswer', () => {
     const id = await start();
     await submit({ interviewId: id, voice: fakeVoice({ transcribe: async () => '' }) });
 
-    expect(await submit({ interviewId: id })).toBe('stored');
+    expect(await submit({ interviewId: id })).toMatchObject({ outcome: 'stored' });
   });
 
   it.each([0, 2, 5, 6])(
-    'rejects an Answer at position %i, which isn’t the current one',
+    'rejects an Answer at position %i, which isn’t the current one, with the current step',
     async (position) => {
       const id = await start();
       const voice = fakeVoice();
 
-      expect(await submit({ interviewId: id, position, voice })).toBe('not_current_question');
+      expect(await submit({ interviewId: id, position, voice })).toMatchObject({
+        outcome: 'not_current_question',
+        nextStep: { type: 'question', position: 1 },
+      });
       expect(voice.transcribe).not.toHaveBeenCalled();
       expect(await storedAnswers()).toEqual([]);
     },
   );
 
+  it('rejects an Answer that skips ahead of the current Interview Question', async () => {
+    const id = await start();
+    await answerUpTo(id, 2);
+
+    expect(await submit({ interviewId: id, position: 4 })).toMatchObject({
+      outcome: 'not_current_question',
+      nextStep: { type: 'question', position: 3 },
+    });
+    expect(await storedAnswers()).toHaveLength(2);
+  });
+
   it('treats another User’s Interview as not found', async () => {
     const id = await start({}, OTHER_USER_ID);
 
-    expect(await submit({ interviewId: id })).toBe('not_found');
+    expect(await submit({ interviewId: id })).toEqual({ outcome: 'not_found' });
     expect(await storedAnswers()).toEqual([]);
   });
 
   it.each(['00000000-0000-4000-8000-000000000099', 'not-a-uuid'])(
     'treats an unknown Interview id as not found: %s',
     async (interviewId) => {
-      expect(await submit({ interviewId })).toBe('not_found');
+      expect(await submit({ interviewId })).toEqual({ outcome: 'not_found' });
     },
   );
 
@@ -486,10 +633,18 @@ describe('submitAnswer', () => {
       const id = await start();
       await db.update(interviews).set({ status }).where(eq(interviews.id, id));
 
-      expect(await submit({ interviewId: id })).toBe('not_in_progress');
+      expect(await submit({ interviewId: id })).toEqual({ outcome: 'not_in_progress' });
       expect(await storedAnswers()).toEqual([]);
     },
   );
+
+  it('rejects a repeated Answer to an abandoned Interview rather than moving it on', async () => {
+    const id = await start();
+    await answerUpTo(id, 1);
+    await db.update(interviews).set({ status: 'abandoned' }).where(eq(interviews.id, id));
+
+    expect(await submit({ interviewId: id })).toEqual({ outcome: 'not_in_progress' });
+  });
 });
 
 describe('re-seeding the question bank after an Interview started', () => {

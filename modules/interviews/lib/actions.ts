@@ -13,21 +13,18 @@ import {
   startInterview,
   submitAnswer,
   TranscriptionFailedError,
-  type AnswerOutcome,
+  type AnswerRejection,
 } from './service';
+import type { InterviewStep } from './types';
 
 export type StartInterviewState = { error: string } | null;
 
-export type SubmitAnswerResult = { received: true } | { error: string };
+export type SubmitAnswerResult = { nextStep: InterviewStep } | { error: string };
 
-const ANSWER_REJECTED_ERRORS: Record<
-  Exclude<AnswerOutcome, 'stored' | 'already_answered'>,
-  string
-> = {
+const ANSWER_REJECTED_ERRORS: Record<AnswerRejection, string> = {
   not_heard: "We couldn't hear you. Please record your answer again.",
   not_found: "We couldn't find this interview.",
   not_in_progress: 'This interview is no longer in progress.',
-  not_current_question: 'This question isn’t the current one any more. Please reload the page.',
 };
 
 export async function startInterviewAction(
@@ -54,7 +51,6 @@ export async function startInterviewAction(
   redirect(ROUTES.interview(interviewId));
 }
 
-// Only stores the Answer for now; moving the Interview on comes later.
 export async function submitAnswerAction(formData: FormData): Promise<SubmitAnswerResult> {
   const userId = await requireUserId();
   const parsed = parseAnswerSubmission(formData);
@@ -66,7 +62,7 @@ export async function submitAnswerAction(formData: FormData): Promise<SubmitAnsw
   const { interviewId, position, audio } = parsed.data;
 
   try {
-    const outcome = await submitAnswer({
+    const result = await submitAnswer({
       voice: elevenLabsVoice,
       userId,
       interviewId,
@@ -74,13 +70,22 @@ export async function submitAnswerAction(formData: FormData): Promise<SubmitAnsw
       audio,
     });
 
-    if (outcome !== 'stored' && outcome !== 'already_answered') {
-      // Silence is an ordinary mistake rather than something worth looking into.
-      if (outcome !== 'not_heard') {
-        logger.warn('Answer rejected', { interviewId, position, reason: outcome });
+    if ('nextStep' in result) {
+      // The client only ever sends the position it shows, so this points to a bug worth looking into.
+      if (result.outcome === 'not_current_question') {
+        logger.warn('Answer sent for a question that isn’t the current one', {
+          interviewId,
+          position,
+        });
       }
-      return { error: ANSWER_REJECTED_ERRORS[outcome] };
+      return { nextStep: result.nextStep };
     }
+
+    // Silence is an ordinary mistake rather than something worth looking into.
+    if (result.outcome !== 'not_heard') {
+      logger.warn('Answer rejected', { interviewId, position, reason: result.outcome });
+    }
+    return { error: ANSWER_REJECTED_ERRORS[result.outcome] };
   } catch (error) {
     if (error instanceof TranscriptionFailedError) {
       logger.error('Transcribing the Answer failed', error.cause, { interviewId, position });
@@ -91,6 +96,4 @@ export async function submitAnswerAction(formData: FormData): Promise<SubmitAnsw
     logger.error('Submitting the Answer failed', error, { interviewId, position });
     return { error: "We couldn't send your answer. Please try again." };
   }
-
-  return { received: true };
 }

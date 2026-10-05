@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { AUDIO_BITS_PER_SECOND, MIME_TYPES } from '../lib/constants';
+import { openMicrophone, releaseMicrophone } from '../lib/microphone';
 import type { AudioRecorderState, MicrophoneError } from '../lib/types';
 
 function microphoneErrorOf(error: unknown): MicrophoneError {
@@ -10,26 +11,23 @@ function microphoneErrorOf(error: unknown): MicrophoneError {
   return 'unavailable';
 }
 
-function release(stream: MediaStream) {
-  stream.getTracks().forEach((track) => track.stop());
-}
-
+// Records from the microphone kept open by `openMicrophone`, which this hook never releases, except
+// when recording from it fails.
 export function useAudioRecorder() {
   const [state, setState] = useState<AudioRecorderState>({ status: 'idle' });
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   // `state` is read from the last render, so two clicks before a re-render would both pass the
-  // status check. These refs stop the second one from opening another microphone stream.
+  // status check. These refs stop the second one from starting another recording.
   const isStartingRef = useRef(false);
   const isMountedRef = useRef(false);
 
-  // Releases the microphone if the component unmounts mid-recording. Microphone access that is
-  // granted after unmounting is released in `start`.
+  // Stops recording if the component unmounts mid-recording.
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
-      if (recorderRef.current) release(recorderRef.current.stream);
+      recorderRef.current?.stop();
     };
   }, []);
 
@@ -47,7 +45,7 @@ export function useAudioRecorder() {
 
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await openMicrophone();
     } catch (error) {
       setState({ status: 'microphone_error', error: microphoneErrorOf(error) });
       return;
@@ -55,10 +53,7 @@ export function useAudioRecorder() {
       isStartingRef.current = false;
     }
 
-    if (!isMountedRef.current) {
-      release(stream);
-      return;
-    }
+    if (!isMountedRef.current) return;
 
     let recorder: MediaRecorder;
     try {
@@ -74,11 +69,9 @@ export function useAudioRecorder() {
       recorder.addEventListener(
         'stop',
         () => {
-          release(stream);
           // The recorder also stops on its own, e.g. when the microphone is unplugged.
           if (recorderRef.current === recorder) recorderRef.current = null;
-          // Releasing the microphone on unmount stops the recorder too, but the audio is no longer
-          // needed.
+          // Stopped by unmounting, so the audio is no longer needed.
           if (!isMountedRef.current) return;
 
           if (chunks.length === 0) {
@@ -96,7 +89,8 @@ export function useAudioRecorder() {
 
       recorder.start();
     } catch {
-      release(stream);
+      // Asked for again next time, in case this microphone was the problem.
+      void releaseMicrophone();
       setState({ status: 'microphone_error', error: 'unavailable' });
       return;
     }

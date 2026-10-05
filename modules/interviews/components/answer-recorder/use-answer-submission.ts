@@ -3,7 +3,8 @@ import { useState } from 'react';
 import { logger } from '@/lib/logger';
 
 import { submitAnswerAction } from '../../lib/actions';
-import type { AnswerSubmissionState } from '../../lib/types';
+import type { AnswerSubmissionState, InterviewStep } from '../../lib/types';
+import { useInterview } from '../interview-screen/interview-context';
 
 // The server received the Answer but turned it down, e.g. because the Interview has finished.
 class AnswerRejectedError extends Error {}
@@ -14,16 +15,13 @@ function fileExtensionOf(mimeType: string) {
   return 'webm';
 }
 
-interface UseAnswerSubmissionOptions {
-  interviewId: string;
-  position: number;
-}
+export function useAnswerSubmission() {
+  const { interviewId, position, onAnswered } = useInterview();
 
-export function useAnswerSubmission({ interviewId, position }: UseAnswerSubmissionOptions) {
   const [state, setState] = useState<AnswerSubmissionState>({ status: 'idle' });
 
   async function submit(audio: Blob) {
-    if (state.status === 'sending' || state.status === 'sent') return;
+    if (state.status === 'sending') return;
 
     const formData = new FormData();
     formData.set('interviewId', interviewId);
@@ -32,12 +30,13 @@ export function useAnswerSubmission({ interviewId, position }: UseAnswerSubmissi
 
     setState({ status: 'sending' });
 
+    let nextStep: InterviewStep;
     try {
       const result = await submitAnswerAction(formData);
 
       if ('error' in result) throw new AnswerRejectedError(result.error);
 
-      setState({ status: 'sent' });
+      nextStep = result.nextStep;
     } catch (error) {
       const isRejected = error instanceof AnswerRejectedError;
 
@@ -47,7 +46,12 @@ export function useAnswerSubmission({ interviewId, position }: UseAnswerSubmissi
         status: 'error',
         error: isRejected ? error.message : "We couldn't send your answer. Please try again.",
       });
+      return;
     }
+
+    // The status stays `sending` until the next step replaces this recorder, so the Answer can't be
+    // sent twice.
+    onAnswered(nextStep);
   }
 
   function reset() {

@@ -5,6 +5,13 @@ import { submitAnswerAction } from './actions';
 
 const USER_ID = '00000000-0000-4000-8000-000000000001';
 const INTERVIEW_ID = '00000000-0000-4000-8000-000000000002';
+const NEXT_STEP = {
+  type: 'question',
+  position: 3,
+  questionCount: 5,
+  questionText: 'What is a closure?',
+  questionAudio: 'data:audio/mpeg;base64,c3BlZWNo',
+};
 
 const { submitAnswer, logger, TranscriptionFailedError } = vi.hoisted(() => ({
   submitAnswer: vi.fn(),
@@ -26,7 +33,7 @@ function answer(fields: Partial<Record<'interviewId' | 'position', string>> = {}
 }
 
 beforeEach(() => {
-  submitAnswer.mockResolvedValue('stored');
+  submitAnswer.mockResolvedValue({ outcome: 'stored', nextStep: NEXT_STEP });
 });
 
 afterEach(() => {
@@ -34,8 +41,8 @@ afterEach(() => {
 });
 
 describe('submitAnswerAction', () => {
-  it('submits the recording as the signed-in User’s Answer and confirms it was received', async () => {
-    expect(await submitAnswerAction(answer({ position: '2' }))).toEqual({ received: true });
+  it('submits the recording as the signed-in User’s Answer and returns the next step', async () => {
+    expect(await submitAnswerAction(answer({ position: '2' }))).toEqual({ nextStep: NEXT_STEP });
     expect(submitAnswer).toHaveBeenCalledWith(
       expect.objectContaining({ userId: USER_ID, interviewId: INTERVIEW_ID, position: 2 }),
     );
@@ -43,10 +50,28 @@ describe('submitAnswerAction', () => {
     expect(await audio.text()).toBe('audio');
   });
 
-  it('confirms a repeated submit for an answered Interview Question was received', async () => {
-    submitAnswer.mockResolvedValue('already_answered');
+  it('returns that the Interview is completed after the last Answer', async () => {
+    submitAnswer.mockResolvedValue({ outcome: 'stored', nextStep: { type: 'completed' } });
 
-    expect(await submitAnswerAction(answer())).toEqual({ received: true });
+    expect(await submitAnswerAction(answer({ position: '5' }))).toEqual({
+      nextStep: { type: 'completed' },
+    });
+  });
+
+  it('returns the next step for a repeated submit for an answered Interview Question', async () => {
+    submitAnswer.mockResolvedValue({ outcome: 'already_answered', nextStep: NEXT_STEP });
+
+    expect(await submitAnswerAction(answer())).toEqual({ nextStep: NEXT_STEP });
+  });
+
+  it('returns the current step and logs it when the Answer isn’t for the current question', async () => {
+    submitAnswer.mockResolvedValue({ outcome: 'not_current_question', nextStep: NEXT_STEP });
+
+    expect(await submitAnswerAction(answer())).toEqual({ nextStep: NEXT_STEP });
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Answer sent for a question that isn’t the current one',
+      { interviewId: INTERVIEW_ID, position: 1 },
+    );
   });
 
   it('asks for a new recording without submitting the Answer when the submission is invalid', async () => {
@@ -60,7 +85,7 @@ describe('submitAnswerAction', () => {
   });
 
   it('asks for a new recording without logging when the User couldn’t be heard', async () => {
-    submitAnswer.mockResolvedValue('not_heard');
+    submitAnswer.mockResolvedValue({ outcome: 'not_heard' });
 
     expect(await submitAnswerAction(answer())).toEqual({
       error: "We couldn't hear you. Please record your answer again.",
@@ -86,12 +111,8 @@ describe('submitAnswerAction', () => {
   it.each([
     ['not_found', "We couldn't find this interview."],
     ['not_in_progress', 'This interview is no longer in progress.'],
-    [
-      'not_current_question',
-      'This question isn’t the current one any more. Please reload the page.',
-    ],
   ])('explains a rejection for %s and logs it', async (reason, error) => {
-    submitAnswer.mockResolvedValue(reason);
+    submitAnswer.mockResolvedValue({ outcome: reason });
 
     expect(await submitAnswerAction(answer())).toEqual({ error });
     expect(logger.warn).toHaveBeenCalledWith('Answer rejected', {

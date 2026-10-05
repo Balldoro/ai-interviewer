@@ -10,23 +10,14 @@ import { shuffle } from '@/lib/utils';
 import { QUESTION_CATEGORIES, type QuestionCategory } from '@/modules/setup/lib/constants';
 import type { InterviewSetup } from '@/modules/setup/lib/schema';
 
+import type { InterviewStep } from './types';
 import type { Voice } from './voice';
 
-export type InterviewStep = {
-  position: number;
-  questionCount: number;
-  questionText: string;
-  // The Question Text spoken by the AI interviewer, as a data URL. Null when speech failed.
-  questionAudio: string | null;
-};
+export type AnswerRejection = 'not_heard' | 'not_found' | 'not_in_progress';
 
 export type AnswerOutcome =
-  | 'stored'
-  | 'already_answered'
-  | 'not_heard'
-  | 'not_found'
-  | 'not_in_progress'
-  | 'not_current_question';
+  | { outcome: 'stored' | 'already_answered' | 'not_current_question'; nextStep: InterviewStep }
+  | { outcome: AnswerRejection };
 
 // The speech service failed, as opposed to the recording holding no speech (`not_heard`).
 export class TranscriptionFailedError extends Error {}
@@ -105,36 +96,27 @@ export async function startInterview({ userId, setup }: StartInterviewParams): P
 }
 
 /**
- * The User's current step in an Interview, or null when the Interview doesn't exist or belongs to
- * someone else. It never contains Key Points or any other Interview Question. When the speech
- * service fails, the step comes without audio so the Interview can carry on.
+ * The User's current step in an Interview: the first Interview Question without an Answer, or
+ * `completed` once every one has an Answer. Null when the Interview doesn't exist or belongs to
+ * someone else. It never contains Key Points or any other Interview Question.
  */
 export async function getInterviewStep({
   voice,
   userId,
   interviewId,
 }: GetInterviewStepParams): Promise<InterviewStep | null> {
-  const current = await findCurrentStep({ userId, interviewId });
+  const progress = await findProgress({ userId, interviewId });
 
-  if (!current) return null;
-
-  const { position, questionCount, questionText } = current;
-
-  let questionAudio: string | null = null;
-  try {
-    questionAudio = await toDataUrl(await voice.speak(questionText));
-  } catch (error) {
-    logger.error('Speaking the Interview Question failed', error, { interviewId, position });
-  }
-
-  return { position, questionCount, questionText, questionAudio };
+  return progress && currentStepOf({ voice, interviewId, progress });
 }
 
 /**
- * Transcribes the recording and stores the text as the Answer to the current Interview Question.
+ * Transcribes the recording, stores the text as the Answer to the current Interview Question and
+ * returns the step that follows. The Answer to the last Interview Question completes the Interview.
  * The audio itself is never stored. Nothing is stored when the Interview Question already has an
- * Answer or the recording holds no speech, and nothing is stored when the speech service fails, in
- * which case it throws `TranscriptionFailedError`.
+ * Answer, though the step that follows is returned all the same, or when the recording holds no
+ * speech. Nothing is stored either when the speech service fails, in which case it throws
+ * `TranscriptionFailedError`.
  */
 export async function submitAnswer({
   voice,
@@ -143,12 +125,30 @@ export async function submitAnswer({
   position,
   audio,
 }: SubmitAnswerParams): Promise<AnswerOutcome> {
-  const current = await findCurrentStep({ userId, interviewId });
+  const progress = await findProgress({ userId, interviewId });
 
-  if (!current) return 'not_found';
-  if (current.status !== 'in_progress') return 'not_in_progress';
-  if (current.position !== position) return 'not_current_question';
-  if (current.isAnswered) return 'already_answered';
+  if (!progress) return { outcome: 'not_found' };
+  if (progress.status === 'abandoned') return { outcome: 'not_in_progress' };
+
+  // A repeated submit, e.g. a retry after a dropped connection, gets the same step as the first.
+  if (progress.questions.find((question) => question.position === position)?.isAnswered) {
+    return {
+      outcome: 'already_answered',
+      nextStep: await currentStepOf({ voice, interviewId, progress }),
+    };
+  }
+
+  if (progress.status !== 'in_progress') return { outcome: 'not_in_progress' };
+
+  const current = progress.questions.find((question) => !question.isAnswered);
+
+  // The User is put back on the current step rather than left stuck on a question they can't answer.
+  if (current?.position !== position) {
+    return {
+      outcome: 'not_current_question',
+      nextStep: await currentStepOf({ voice, interviewId, progress }),
+    };
+  }
 
   let transcript: string;
   try {
@@ -157,30 +157,54 @@ export async function submitAnswer({
     throw new TranscriptionFailedError('Transcribing the Answer failed', { cause: error });
   }
 
-  if (!transcript) return 'not_heard';
+  if (!transcript) return { outcome: 'not_heard' };
 
-  // A submit racing this one may have stored its Answer since the check above.
-  const stored = await db
-    .insert(answers)
-    .values({ interviewQuestionId: current.interviewQuestionId, transcript })
-    .onConflictDoNothing()
-    .returning({ id: answers.id });
+  // Only the current Interview Question can be answered, so the progress after it follows from the
+  // progress already read.
+  const answered = {
+    ...progress,
+    questions: progress.questions.map((question) =>
+      question === current ? { ...question, isAnswered: true } : question,
+    ),
+  };
 
-  return stored.length > 0 ? 'stored' : 'already_answered';
+  const outcome = await db.transaction(async (tx) => {
+    // A submit racing this one may have stored its Answer since the check above.
+    const stored = await tx
+      .insert(answers)
+      .values({ interviewQuestionId: current.interviewQuestionId, transcript })
+      .onConflictDoNothing()
+      .returning({ id: answers.id });
+
+    if (stored.length === 0) return 'already_answered';
+
+    if (!currentQuestionOf(answered)) {
+      await tx
+        .update(interviews)
+        .set({ status: 'completed', finishedAt: sql`now()` })
+        .where(eq(interviews.id, interviewId));
+    }
+
+    return 'stored';
+  });
+
+  // Spoken once the Answer is stored, so the transaction isn't held open while speech is made.
+  return { outcome, nextStep: await currentStepOf({ voice, interviewId, progress: answered }) };
 }
 
-// Until the Interview moves on after an Answer, the current Interview Question is always the first
-// one.
-async function findCurrentStep({ userId, interviewId }: InterviewParams) {
+type Progress = NonNullable<Awaited<ReturnType<typeof findProgress>>>;
+
+// The Interview's status, plus each Interview Question's Question Text and whether it has an Answer.
+async function findProgress({ userId, interviewId }: InterviewParams) {
   if (!z.uuid().safeParse(interviewId).success) return null;
 
-  const [step] = await db
+  const rows = await db
     .select({
+      status: interviews.status,
+      questionCount: interviews.questionCount,
       interviewQuestionId: interviewQuestions.id,
       position: interviewQuestions.position,
-      questionCount: interviews.questionCount,
       questionText: interviewQuestions.questionText,
-      status: interviews.status,
       isAnswered: sql<boolean>`${answers.id} is not null`,
     })
     .from(interviews)
@@ -190,10 +214,60 @@ async function findCurrentStep({ userId, interviewId }: InterviewParams) {
       and(eq(answers.interviewQuestionId, interviewQuestions.id), eq(answers.followUpIndex, 0)),
     )
     .where(and(eq(interviews.id, interviewId), eq(interviews.userId, userId)))
-    .orderBy(asc(interviewQuestions.position))
-    .limit(1);
+    .orderBy(asc(interviewQuestions.position));
 
-  return step ?? null;
+  if (rows.length === 0) return null;
+
+  const [{ status, questionCount }] = rows;
+  return {
+    status,
+    questionCount,
+    questions: rows.map(({ interviewQuestionId, position, questionText, isAnswered }) => ({
+      interviewQuestionId,
+      position,
+      questionText,
+      isAnswered,
+    })),
+  };
+}
+
+function currentQuestionOf(progress: Progress) {
+  return progress.questions.find((question) => !question.isAnswered);
+}
+
+/**
+ * The step the progress is at, with its Question Text spoken. When the speech service fails, the
+ * step comes without audio so the Interview can carry on.
+ */
+async function currentStepOf({
+  voice,
+  interviewId,
+  progress,
+}: {
+  voice: Voice;
+  interviewId: string;
+  progress: Progress;
+}): Promise<InterviewStep> {
+  const current = currentQuestionOf(progress);
+
+  if (!current) return { type: 'completed' };
+
+  const { position, questionText } = current;
+
+  let questionAudio: string | null = null;
+  try {
+    questionAudio = await toDataUrl(await voice.speak(questionText));
+  } catch (error) {
+    logger.error('Speaking the Interview Question failed', error, { interviewId, position });
+  }
+
+  return {
+    type: 'question',
+    position,
+    questionCount: progress.questionCount,
+    questionText,
+    questionAudio,
+  };
 }
 
 async function toDataUrl(blob: Blob) {
