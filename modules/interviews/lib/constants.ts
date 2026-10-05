@@ -29,5 +29,4 @@ export const SUBMISSION_MESSAGES: Record<AnswerSubmissionStatus, string> = {
   idle: '',
   sending: 'Sending your answer…',
   error: '',
-  sent: 'Your answer was sent.',
 };

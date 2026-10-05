@@ -8,12 +8,7 @@ import { RecordingButton } from './recording-button';
 import { RecordingTimer } from './recording-timer/recording-timer';
 import { useAnswerRecorder } from './use-answer-recorder';
 
-interface AnswerRecorderProps {
-  interviewId: string;
-  position: number;
-}
-
-export function AnswerRecorder({ interviewId, position }: AnswerRecorderProps) {
+export function AnswerRecorder() {
   const {
     recording,
     errorMessage,
@@ -26,7 +21,7 @@ export function AnswerRecorder({ interviewId, position }: AnswerRecorderProps) {
     stopRecording,
     confirmDiscard,
     submitAnswer,
-  } = useAnswerRecorder({ interviewId, position });
+  } = useAnswerRecorder();
 
   return (
     <div className="flex flex-col gap-4">

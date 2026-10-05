@@ -1,17 +1,30 @@
+import { type ReactNode } from 'react';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { releaseMicrophone } from '../../lib/microphone';
+import { getQuestionAudioPlayer } from '../../lib/question-audio-player';
+import { InterviewContext } from '../interview-screen/interview-context';
 import { AnswerRecorder } from './answer-recorder';
 
 const INTERVIEW_ID = '00000000-0000-4000-8000-000000000001';
+const NEXT_STEP = {
+  type: 'question',
+  position: 2,
+  questionCount: 5,
+  questionText: 'What is a closure?',
+  questionAudio: 'data:audio/mpeg;base64,c3BlZWNo',
+} as const;
 
 const { submitAnswerAction } = vi.hoisted(() => ({ submitAnswerAction: vi.fn() }));
 
 vi.mock('../../lib/actions', () => ({ submitAnswerAction }));
 
+const onAnswered = vi.fn();
+const onAnsweringChange = vi.fn();
 const track = { stop: vi.fn() };
-const stream = { getTracks: () => [track] } as unknown as MediaStream;
+const stream = { active: true, getTracks: () => [track] };
 const getUserMedia = vi.fn<MediaDevices['getUserMedia']>();
 
 // Each recording produces one chunk holding the take number, so tests can tell recordings apart.
@@ -45,8 +58,9 @@ class FakeMediaRecorder extends EventTarget {
 
 beforeEach(() => {
   takes = 0;
-  getUserMedia.mockResolvedValue(stream);
-  submitAnswerAction.mockResolvedValue({ received: true });
+  stream.active = true;
+  getUserMedia.mockResolvedValue(stream as unknown as MediaStream);
+  submitAnswerAction.mockResolvedValue({ nextStep: NEXT_STEP });
   vi.stubGlobal('MediaRecorder', FakeMediaRecorder);
   Object.defineProperty(navigator, 'mediaDevices', {
     value: { getUserMedia },
@@ -54,25 +68,40 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => {
+afterEach(async () => {
+  // The microphone outlives the recorder, so it's released here rather than by unmounting.
+  await releaseMicrophone();
   vi.unstubAllGlobals();
   Reflect.deleteProperty(navigator, 'mediaDevices');
   getUserMedia.mockReset();
   submitAnswerAction.mockReset();
+  onAnswered.mockReset();
+  onAnsweringChange.mockReset();
   track.stop.mockReset();
   vi.restoreAllMocks();
 });
 
+// AnswerRecorder answers whichever Interview Question InterviewScreen puts on screen.
+function FirstQuestion({ children }: { children: ReactNode }) {
+  return (
+    <InterviewContext
+      value={{ interviewId: INTERVIEW_ID, position: 1, onAnswered, onAnsweringChange }}
+    >
+      {children}
+    </InterviewContext>
+  );
+}
+
 function renderRecorder() {
   const user = userEvent.setup();
-  render(<AnswerRecorder interviewId={INTERVIEW_ID} position={1} />);
+  render(<AnswerRecorder />, { wrapper: FirstQuestion });
   return { user };
 }
 
 // For tests that use fake timers, so that user-event's delays advance them.
 function renderRecorderWithFakeTimers() {
   const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-  render(<AnswerRecorder interviewId={INTERVIEW_ID} position={1} />);
+  render(<AnswerRecorder />, { wrapper: FirstQuestion });
   return { user };
 }
 
@@ -104,18 +133,58 @@ async function submittedFields() {
 }
 
 describe('AnswerRecorder', () => {
-  it('starts recording from the microphone and stops it', async () => {
+  it('starts recording from the microphone and stops it, keeping the microphone open', async () => {
     const { user } = renderRecorder();
 
     await user.click(screen.getByRole('button', { name: 'Start recording' }));
 
-    expect(getUserMedia).toHaveBeenCalledWith({ audio: true });
     expect(await screen.findByRole('status')).toHaveTextContent('Recording…');
 
     await user.click(screen.getByRole('button', { name: 'Stop recording' }));
 
     expect(screen.getByRole('status')).toHaveTextContent('Your answer is recorded.');
-    expect(track.stop).toHaveBeenCalled();
+    // Safari cuts the speakers for a moment a few seconds after a microphone is released, which is
+    // when the next Question Audio plays.
+    expect(track.stop).not.toHaveBeenCalled();
+  });
+
+  it('records again from the microphone that is already open', async () => {
+    const { user } = renderRecorder();
+
+    await record(user);
+    await discard(user);
+    await record(user);
+
+    expect(getUserMedia).toHaveBeenCalledOnce();
+  });
+
+  it('asks for the microphone again when the open one has stopped working', async () => {
+    const { user } = renderRecorder();
+
+    await record(user);
+    await discard(user);
+    // E.g. the microphone was unplugged.
+    stream.active = false;
+    await record(user);
+
+    expect(getUserMedia).toHaveBeenCalledTimes(2);
+  });
+
+  it('records from the microphone with the browser’s default processing', async () => {
+    const { user } = renderRecorder();
+
+    await user.click(screen.getByRole('button', { name: 'Start recording' }));
+
+    expect(getUserMedia).toHaveBeenCalledExactlyOnceWith({ audio: true });
+  });
+
+  it('stops the Question Audio when recording starts', async () => {
+    const pause = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    const { user } = renderRecorder();
+
+    await user.click(screen.getByRole('button', { name: 'Start recording' }));
+
+    expect(pause.mock.contexts).toContain(getQuestionAudioPlayer());
   });
 
   it('waits for microphone access without letting the User start a second recording', async () => {
@@ -132,7 +201,7 @@ describe('AnswerRecorder', () => {
     await user.click(start);
     expect(getUserMedia).toHaveBeenCalledOnce();
 
-    resolve(stream);
+    resolve(stream as unknown as MediaStream);
     expect(await screen.findByRole('button', { name: 'Stop recording' })).toBeEnabled();
   });
 
@@ -150,7 +219,7 @@ describe('AnswerRecorder', () => {
     expect(submit).toBeEnabled();
   });
 
-  it('sends the recording and the position, and shows it was received', async () => {
+  it('sends the recording and the position, and passes on the step that follows', async () => {
     const { user } = renderRecorder();
 
     await record(user);
@@ -161,7 +230,7 @@ describe('AnswerRecorder', () => {
       position: '1',
       audio: { name: 'answer.webm', type: 'audio/webm;codecs=opus', text: 'take 1' },
     });
-    expect(await screen.findByRole('status')).toHaveTextContent('Your answer was sent.');
+    await waitFor(() => expect(onAnswered).toHaveBeenCalledExactlyOnceWith(NEXT_STEP));
     expect(screen.getByRole('button', { name: 'Submit answer' })).toBeDisabled();
   });
 
@@ -235,7 +304,6 @@ describe('AnswerRecorder', () => {
       advanceSeconds(1);
       expect(screen.queryByRole('timer')).not.toBeInTheDocument();
       expect(screen.getByRole('status')).toHaveTextContent('Your answer is recorded.');
-      expect(track.stop).toHaveBeenCalled();
 
       await user.click(screen.getByRole('button', { name: 'Submit answer' }));
       expect((await submittedFields()).audio.text).toBe('take 1');
@@ -262,7 +330,7 @@ describe('AnswerRecorder', () => {
   });
 
   it('disables submitting while the Answer is being sent', async () => {
-    const { promise, resolve } = Promise.withResolvers<{ received: true }>();
+    const { promise, resolve } = Promise.withResolvers<{ nextStep: typeof NEXT_STEP }>();
     submitAnswerAction.mockReturnValue(promise);
     const { user } = renderRecorder();
     const submit = screen.getByRole('button', { name: 'Submit answer' });
@@ -272,8 +340,10 @@ describe('AnswerRecorder', () => {
     await waitFor(() => expect(submit).toBeDisabled());
     expect(screen.getByRole('button', { name: 'Discard recording' })).toBeDisabled();
 
-    resolve({ received: true });
-    expect(await screen.findByRole('status')).toHaveTextContent('Your answer was sent.');
+    resolve({ nextStep: NEXT_STEP });
+    await waitFor(() => expect(onAnswered).toHaveBeenCalledOnce());
+    // Until the next step replaces the recorder.
+    expect(submit).toBeDisabled();
   });
 
   it('shows why the server rejected the Answer and lets the User try again', async () => {
@@ -287,6 +357,7 @@ describe('AnswerRecorder', () => {
       'This interview is no longer in progress.',
     );
     expect(screen.getByRole('button', { name: 'Submit answer' })).toBeEnabled();
+    expect(onAnswered).not.toHaveBeenCalled();
   });
 
   it('lets the User try again when the Answer could not reach the server', async () => {
@@ -303,7 +374,7 @@ describe('AnswerRecorder', () => {
 
     await user.click(screen.getByRole('button', { name: 'Submit answer' }));
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Your answer was sent.');
+    await waitFor(() => expect(onAnswered).toHaveBeenCalledOnce());
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
@@ -319,6 +390,7 @@ describe('AnswerRecorder', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       "We couldn't hear you. Please record your answer again.",
     );
+    expect(onAnswered).not.toHaveBeenCalled();
 
     await discard(user);
     await record(user);
@@ -326,7 +398,7 @@ describe('AnswerRecorder', () => {
     await user.click(screen.getByRole('button', { name: 'Submit answer' }));
 
     expect((await submittedFields()).audio.text).toBe('take 2');
-    expect(await screen.findByRole('status')).toHaveTextContent('Your answer was sent.');
+    await waitFor(() => expect(onAnswered).toHaveBeenCalledOnce());
   });
 
   it('clears the error of a failed submission when its recording is discarded', async () => {
@@ -387,7 +459,7 @@ describe('AnswerRecorder', () => {
     await user.click(screen.getByRole('button', { name: 'Start recording' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent("We couldn't use your microphone.");
-    expect(track.stop).toHaveBeenCalled();
+    await waitFor(() => expect(track.stop).toHaveBeenCalled());
     expect(screen.getByRole('button', { name: 'Start recording' })).toBeEnabled();
   });
 
@@ -410,30 +482,35 @@ describe('AnswerRecorder', () => {
     expect(screen.getByRole('button', { name: 'Start recording' })).toBeEnabled();
   });
 
-  it('releases the microphone when left mid-recording', async () => {
+  // Releasing the microphone is up to the Interview (see InterviewScreen).
+  it('stops recording when left mid-recording', async () => {
+    const stop = vi.spyOn(FakeMediaRecorder.prototype, 'stop');
     const user = userEvent.setup();
-    const { unmount } = render(<AnswerRecorder interviewId={INTERVIEW_ID} position={1} />);
+    const { unmount } = render(<AnswerRecorder />, {
+      wrapper: FirstQuestion,
+    });
 
     await user.click(screen.getByRole('button', { name: 'Start recording' }));
     await screen.findByRole('button', { name: 'Stop recording' });
-    expect(track.stop).not.toHaveBeenCalled();
 
     unmount();
 
-    expect(track.stop).toHaveBeenCalled();
+    expect(stop).toHaveBeenCalledOnce();
   });
 
-  it('releases the microphone when left before access was granted', async () => {
+  it('doesn’t start recording when left before microphone access was granted', async () => {
     const { promise, resolve } = Promise.withResolvers<MediaStream>();
     getUserMedia.mockReturnValue(promise);
     const user = userEvent.setup();
-    const { unmount } = render(<AnswerRecorder interviewId={INTERVIEW_ID} position={1} />);
+    const { unmount } = render(<AnswerRecorder />, {
+      wrapper: FirstQuestion,
+    });
 
     await user.click(screen.getByRole('button', { name: 'Start recording' }));
     unmount();
-    resolve(stream);
+    resolve(stream as unknown as MediaStream);
+    await promise;
 
-    await waitFor(() => expect(track.stop).toHaveBeenCalled());
     expect(takes).toBe(0);
   });
 });

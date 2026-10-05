@@ -1,22 +1,26 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { useAudioRecorder } from '../../hooks/use-audio-recorder';
 import { MICROPHONE_ERRORS, RECORDING_MESSAGES, SUBMISSION_MESSAGES } from '../../lib/constants';
+import { getQuestionAudioPlayer } from '../../lib/question-audio-player';
+import { useInterview } from '../interview-screen/interview-context';
 import { useAnswerSubmission } from './use-answer-submission';
 
-interface UseAnswerRecorderOptions {
-  interviewId: string;
-  position: number;
-}
+export function useAnswerRecorder() {
+  const { onAnsweringChange } = useInterview();
 
-export function useAnswerRecorder({ interviewId, position }: UseAnswerRecorderOptions) {
   const [isDiscardDialogOpen, setIsDiscardDialogOpen] = useState(false);
 
-  const submission = useAnswerSubmission({ interviewId, position });
+  const submission = useAnswerSubmission();
 
   const recorder = useAudioRecorder();
 
-  const hasSubmitted = submission.state.status === 'sending' || submission.state.status === 'sent';
+  const isSending = submission.state.status === 'sending';
+  const isAnswering =
+    isSending || recorder.state.status === 'starting' || recorder.state.status === 'recording';
+
+  // E.g. so that the Question Audio can't be replayed over the Answer.
+  useEffect(() => onAnsweringChange(isAnswering), [isAnswering, onAnsweringChange]);
 
   const errorMessage =
     recorder.state.status === 'microphone_error'
@@ -26,11 +30,13 @@ export function useAnswerRecorder({ interviewId, position }: UseAnswerRecorderOp
         : null;
 
   function clickRecordingButton() {
-    if (hasSubmitted) return;
+    if (isSending) return;
 
     switch (recorder.state.status) {
       case 'idle':
       case 'microphone_error':
+        // The AI interviewer stops talking once the User starts answering.
+        getQuestionAudioPlayer().pause();
         return recorder.start();
       case 'recording':
         return recorder.stop();
@@ -41,7 +47,7 @@ export function useAnswerRecorder({ interviewId, position }: UseAnswerRecorderOp
 
   function confirmDiscard() {
     setIsDiscardDialogOpen(false);
-    if (hasSubmitted) return;
+    if (isSending) return;
 
     recorder.discard();
     submission.reset();
@@ -56,8 +62,8 @@ export function useAnswerRecorder({ interviewId, position }: UseAnswerRecorderOp
     errorMessage,
     statusMessage:
       SUBMISSION_MESSAGES[submission.state.status] || RECORDING_MESSAGES[recorder.state.status],
-    isRecordingDisabled: hasSubmitted,
-    canSubmit: recorder.state.status === 'recorded' && !hasSubmitted,
+    isRecordingDisabled: isSending,
+    canSubmit: recorder.state.status === 'recorded' && !isSending,
     isDiscardDialogOpen,
     setIsDiscardDialogOpen,
     clickRecordingButton,
