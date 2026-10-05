@@ -1,6 +1,7 @@
 import { useActionState, useState } from 'react';
 
 import { startInterviewAction } from '@/modules/interviews/lib/actions';
+import { unlockQuestionAudio } from '@/modules/interviews/lib/question-audio-player';
 
 import {
   INTERVIEW_SETUP_DEFAULTS,
@@ -25,5 +26,14 @@ export function useSetupForm() {
 
   const [state, formAction, isPending] = useActionState(startInterviewAction, null);
 
-  return { questionCount, changeQuestionCount, formAction, isPending, error: state?.error };
+  return {
+    questionCount,
+    changeQuestionCount,
+    formAction,
+    // Submitting is the User's last interaction before the Interview, so audio is unlocked here
+    // for the first Question Audio to play by itself.
+    submit: unlockQuestionAudio,
+    isPending,
+    error: state?.error,
+  };
 }

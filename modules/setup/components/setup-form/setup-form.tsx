@@ -22,12 +22,13 @@ import { useSetupForm } from './use-setup-form';
 export function SetupForm() {
   const id = useId();
 
-  const { questionCount, changeQuestionCount, formAction, isPending, error } = useSetupForm();
+  const { questionCount, changeQuestionCount, formAction, submit, isPending, error } =
+    useSetupForm();
 
   const questionCountLabelId = `${id}-question-count`;
 
   return (
-    <form action={formAction} className="flex flex-col gap-6">
+    <form action={formAction} onSubmit={submit} className="flex flex-col gap-6">
       <RadioFieldSet
         id={`${id}-seniority-level`}
         legend="Seniority Level"
