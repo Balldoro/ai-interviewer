@@ -5,6 +5,7 @@ import * as z from 'zod';
 
 import { db } from '@/db';
 import { answers, interviewQuestions, interviews, questions, questionVariants } from '@/db/schema';
+import { logger } from '@/lib/logger';
 import { shuffle } from '@/lib/utils';
 import { QUESTION_CATEGORIES, type QuestionCategory } from '@/modules/setup/lib/constants';
 import type { InterviewSetup } from '@/modules/setup/lib/schema';
@@ -15,6 +16,8 @@ export type InterviewStep = {
   position: number;
   questionCount: number;
   questionText: string;
+  // The Question Text spoken by the AI interviewer, as a data URL. Null when speech failed.
+  questionAudio: string | null;
 };
 
 export type AnswerOutcome =
@@ -31,6 +34,10 @@ export class TranscriptionFailedError extends Error {}
 export interface InterviewParams {
   userId: string;
   interviewId: string;
+}
+
+export interface GetInterviewStepParams extends InterviewParams {
+  voice: Voice;
 }
 
 export interface SubmitAnswerParams extends InterviewParams {
@@ -99,18 +106,28 @@ export async function startInterview({ userId, setup }: StartInterviewParams): P
 
 /**
  * The User's current step in an Interview, or null when the Interview doesn't exist or belongs to
- * someone else. It never contains Key Points or any other Interview Question.
+ * someone else. It never contains Key Points or any other Interview Question. When the speech
+ * service fails, the step comes without audio so the Interview can carry on.
  */
 export async function getInterviewStep({
+  voice,
   userId,
   interviewId,
-}: InterviewParams): Promise<InterviewStep | null> {
+}: GetInterviewStepParams): Promise<InterviewStep | null> {
   const current = await findCurrentStep({ userId, interviewId });
 
   if (!current) return null;
 
   const { position, questionCount, questionText } = current;
-  return { position, questionCount, questionText };
+
+  let questionAudio: string | null = null;
+  try {
+    questionAudio = await toDataUrl(await voice.speak(questionText));
+  } catch (error) {
+    logger.error('Speaking the Interview Question failed', error, { interviewId, position });
+  }
+
+  return { position, questionCount, questionText, questionAudio };
 }
 
 /**
@@ -177,6 +194,11 @@ async function findCurrentStep({ userId, interviewId }: InterviewParams) {
     .limit(1);
 
   return step ?? null;
+}
+
+async function toDataUrl(blob: Blob) {
+  const base64 = Buffer.from(await blob.arrayBuffer()).toString('base64');
+  return `data:${blob.type};base64,${base64}`;
 }
 
 /**
