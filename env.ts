@@ -12,7 +12,7 @@ export const env = createEnv({
     DATABASE_CA_CERT: isVercel
       ? z.string().includes('BEGIN CERTIFICATE', { message: 'Must be a PEM certificate' })
       : z.string().optional(),
-    // Speech-to-text for Answers, from ElevenLabs → Developers → API Keys.
+    // Speaking Interview Questions and transcribing Answers, from ElevenLabs → Developers → API Keys.
     ELEVENLABS_API_KEY: z.string().min(1),
   },
   client: {

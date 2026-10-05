@@ -28,8 +28,16 @@ import {
 } from './service';
 import type { Voice } from './voice';
 
+const { logger } = vi.hoisted(() => ({ logger: { error: vi.fn() } }));
+
+vi.mock('@/lib/logger', () => ({ logger }));
+
 const USER_ID = '00000000-0000-4000-8000-000000000001';
 const OTHER_USER_ID = '00000000-0000-4000-8000-000000000002';
+
+afterEach(() => {
+  logger.error.mockReset();
+});
 
 beforeEach(async () => {
   await db.insert(users).values([{ id: USER_ID }, { id: OTHER_USER_ID }]);
@@ -83,8 +91,17 @@ async function storedAnswers() {
   return db.select().from(answers);
 }
 
-function fakeVoice(transcribe: Voice['transcribe'] = async () => 'Closures capture variables.') {
-  return { transcribe: vi.fn(transcribe) };
+const SPEECH = new Blob(['speech'], { type: 'audio/mpeg' });
+
+function fakeVoice({
+  speak = async () => SPEECH,
+  transcribe = async () => 'Closures capture variables.',
+}: Partial<Voice> = {}) {
+  return { speak: vi.fn(speak), transcribe: vi.fn(transcribe) };
+}
+
+function step(interviewId: string, voice: Voice = fakeVoice()) {
+  return getInterviewStep({ voice, userId: USER_ID, interviewId });
 }
 
 async function categoriesOf(interviewId: string) {
@@ -265,41 +282,83 @@ describe('getInterviewStep', () => {
     const id = await start();
     const [first] = await storedInterviewQuestions(id);
 
-    expect(await getInterviewStep({ userId: USER_ID, interviewId: id })).toEqual({
+    expect(await step(id)).toEqual({
       position: 1,
       questionCount: 5,
       questionText: first.questionText,
+      questionAudio: `data:audio/mpeg;base64,${btoa('speech')}`,
     });
+  });
+
+  it('speaks the Question Text of the Interview Question shown', async () => {
+    const id = await start();
+    const [first] = await storedInterviewQuestions(id);
+    const voice = fakeVoice();
+
+    await step(id, voice);
+
+    expect(voice.speak).toHaveBeenCalledExactlyOnceWith(first.questionText);
+  });
+
+  it('shows the Question Text without audio and logs it when the speech service fails', async () => {
+    const id = await start();
+    const [first] = await storedInterviewQuestions(id);
+    const failure = new Error('Text-to-speech unavailable');
+    const voice = fakeVoice({
+      speak: async () => {
+        throw failure;
+      },
+    });
+
+    expect(await step(id, voice)).toEqual({
+      position: 1,
+      questionCount: 5,
+      questionText: first.questionText,
+      questionAudio: null,
+    });
+    expect(logger.error).toHaveBeenCalledWith('Speaking the Interview Question failed', failure, {
+      interviewId: id,
+      position: 1,
+    });
+  });
+
+  it('doesn’t speak anything for an Interview that isn’t found', async () => {
+    const id = await start({}, OTHER_USER_ID);
+    const voice = fakeVoice();
+
+    await step(id, voice);
+
+    expect(voice.speak).not.toHaveBeenCalled();
   });
 
   it('shows the same Interview Question when loaded again', async () => {
     const id = await start();
 
-    const step = await getInterviewStep({ userId: USER_ID, interviewId: id });
+    const shown = await step(id);
 
-    expect(await getInterviewStep({ userId: USER_ID, interviewId: id })).toEqual(step);
+    expect(await step(id)).toEqual(shown);
   });
 
   it('never contains Key Points, the Explanation or any other Interview Question', async () => {
     const id = await start();
     const [, ...others] = await storedInterviewQuestions(id);
 
-    const step = JSON.stringify(await getInterviewStep({ userId: USER_ID, interviewId: id }));
+    const shown = JSON.stringify(await step(id));
 
-    expect(step).not.toMatch(/key point|explanation/);
-    for (const other of others) expect(step).not.toContain(other.questionText);
+    expect(shown).not.toMatch(/key point|explanation/);
+    for (const other of others) expect(shown).not.toContain(other.questionText);
   });
 
   it('treats another User’s Interview as not found', async () => {
     const id = await start({}, OTHER_USER_ID);
 
-    expect(await getInterviewStep({ userId: USER_ID, interviewId: id })).toBeNull();
+    expect(await step(id)).toBeNull();
   });
 
   it.each(['00000000-0000-4000-8000-000000000099', 'not-a-uuid'])(
     'treats an unknown Interview id as not found: %s',
     async (interviewId) => {
-      expect(await getInterviewStep({ userId: USER_ID, interviewId })).toBeNull();
+      expect(await step(interviewId)).toBeNull();
     },
   );
 });
@@ -324,7 +383,7 @@ describe('submitAnswer', () => {
   it('stores the transcript as the Answer to the current Interview Question', async () => {
     const id = await start();
     const [first] = await storedInterviewQuestions(id);
-    const voice = fakeVoice(async () => '  Closures capture variables.  ');
+    const voice = fakeVoice({ transcribe: async () => '  Closures capture variables.  ' });
 
     expect(await submit({ interviewId: id, voice })).toBe('stored');
 
@@ -343,7 +402,7 @@ describe('submitAnswer', () => {
   it('stores nothing new when the Interview Question already has an Answer', async () => {
     const id = await start();
     await submit({ interviewId: id });
-    const voice = fakeVoice(async () => 'A second take.');
+    const voice = fakeVoice({ transcribe: async () => 'A second take.' });
 
     expect(await submit({ interviewId: id, voice })).toBe('already_answered');
 
@@ -365,9 +424,9 @@ describe('submitAnswer', () => {
   it.each(['', '   \n'])('stores nothing when the transcript is empty: %j', async (transcript) => {
     const id = await start();
 
-    expect(await submit({ interviewId: id, voice: fakeVoice(async () => transcript) })).toBe(
-      'not_heard',
-    );
+    const voice = fakeVoice({ transcribe: async () => transcript });
+
+    expect(await submit({ interviewId: id, voice })).toBe('not_heard');
     expect(await storedAnswers()).toEqual([]);
   });
 
@@ -375,8 +434,10 @@ describe('submitAnswer', () => {
     const id = await start();
     const failure = new Error('Speech-to-text unavailable');
 
-    const voice = fakeVoice(async () => {
-      throw failure;
+    const voice = fakeVoice({
+      transcribe: async () => {
+        throw failure;
+      },
     });
 
     const submitted = submit({ interviewId: id, voice });
@@ -388,7 +449,7 @@ describe('submitAnswer', () => {
 
   it('lets the User answer again after a recording that couldn’t be heard', async () => {
     const id = await start();
-    await submit({ interviewId: id, voice: fakeVoice(async () => '') });
+    await submit({ interviewId: id, voice: fakeVoice({ transcribe: async () => '' }) });
 
     expect(await submit({ interviewId: id })).toBe('stored');
   });

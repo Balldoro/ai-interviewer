@@ -2,13 +2,15 @@ import { notFound } from 'next/navigation';
 
 import { requireUserId } from '@/modules/auth/lib/user';
 import { AnswerRecorder } from '@/modules/interviews/components/answer-recorder/answer-recorder';
+import { QuestionAudio } from '@/modules/interviews/components/question-audio/question-audio';
+import { elevenLabsVoice } from '@/modules/interviews/lib/elevenlabs-voice';
 import { getInterviewStep } from '@/modules/interviews/lib/service';
 
 export default async function Interview({ params }: PageProps<'/interviews/[interviewId]'>) {
   const { interviewId } = await params;
   const userId = await requireUserId();
 
-  const step = await getInterviewStep({ userId, interviewId });
+  const step = await getInterviewStep({ voice: elevenLabsVoice, userId, interviewId });
 
   if (!step) notFound();
 
@@ -18,6 +20,7 @@ export default async function Interview({ params }: PageProps<'/interviews/[inte
         Question {step.position} of {step.questionCount}
       </p>
       <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{step.questionText}</h1>
+      {step.questionAudio && <QuestionAudio src={step.questionAudio} />}
       <AnswerRecorder interviewId={interviewId} position={step.position} />
     </main>
   );
