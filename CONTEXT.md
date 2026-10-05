@@ -44,6 +44,10 @@ _Avoid_: Reference answer, ideal answer, model answer
 The sentence the AI interviewer says to ask a Question. A Question has a default Question Text, and a Question Variant may replace it with its own.
 _Avoid_: Wording, prompt
 
+**Question Audio**:
+The Question Text spoken by the AI interviewer, recorded before any Interview asks it. Every Question Text has exactly one, and identical Question Texts share it.
+_Avoid_: Voice, speech, TTS
+
 **Question Variant**:
 The form a Question takes at a Seniority Level: the Key Points a User's answer must cover there, plus an optional Question Text of its own. Each Variant lists all of its Key Points; it inherits none from lower levels. A Senior Variant goes deeper than a Junior one for the same Question.
 _Avoid_: Expectations, rubric, bar
